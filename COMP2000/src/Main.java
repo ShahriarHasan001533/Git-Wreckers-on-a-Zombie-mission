@@ -7,7 +7,7 @@ public class Main {
 
         SwingUtilities.invokeLater(() -> {
             Building building =
-                    new Building(100, 200, 150, 100);
+                    new Building(110, 100, 150, 100);
 
             SimPanel simPanel =
                     new SimPanel(building);
