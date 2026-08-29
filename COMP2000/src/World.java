@@ -71,7 +71,20 @@ public class World {
         return nearbyEntities;
     }
 
+    public void update() {
+        for(Entity entity : List.copyOf(entities)) {
+            if(entity.isActive()) {
+                entity.update(this);
+            }
+        }
+
+        removeInactiveEntities();
+        tick++;
+    }
+
     public void removeInactiveEntities() {
         entities.removeIf(entity -> !entity.isActive());
     }
+
+    
 }

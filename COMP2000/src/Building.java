@@ -1,6 +1,6 @@
-import javax.swing.*;
 import java.awt.*;
 import java.net.URL;
+import javax.swing.*;
 
 public class Building extends Entity {
     private final Image image;
@@ -24,6 +24,11 @@ graphics.drawImage(image,
         width,
         height,
         null);
+    }
+
+    @Override
+    public void update(World world) {
+        
     }
 }
 
