@@ -11,7 +11,7 @@ public class Building extends Entity {
       //  this.image = image;
         this.width = width;
         this.height = height;
-        URL imageURL = Building.class.getResource("/building.png");
+        URL imageURL = Building.class.getResource("/Building.png");
         this.image = new ImageIcon(imageURL).getImage();
     }
 

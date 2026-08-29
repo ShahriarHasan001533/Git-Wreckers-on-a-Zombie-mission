@@ -1,11 +1,11 @@
-import javax.swing.ImageIcon;
-import javax.swing.JPanel;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.net.URL;
 import java.util.List;
+import javax.swing.ImageIcon;
+import javax.swing.JPanel;
 
 public class SimPanel extends JPanel {
 
@@ -21,7 +21,7 @@ public class SimPanel extends JPanel {
 
         URL backgroundURL =
                 SimPanel.class.getResource(
-                        "/background.png"
+                        "/Background.png"
                 );
 
         if (backgroundURL == null) {
