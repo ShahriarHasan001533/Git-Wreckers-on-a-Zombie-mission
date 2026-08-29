@@ -1,6 +1,6 @@
-import javax.swing.*;
 import java.awt.*;
 import java.net.URL;
+import javax.swing.*;
 
 public class Building extends Entity {
     private final Image image;
@@ -11,7 +11,7 @@ public class Building extends Entity {
       //  this.image = image;
         this.width = width;
         this.height = height;
-        URL imageURL = Building.class.getResource("/building.png");
+        URL imageURL = Building.class.getResource("/Building.png");
         this.image = new ImageIcon(imageURL).getImage();
     }
 
@@ -24,6 +24,11 @@ graphics.drawImage(image,
         width,
         height,
         null);
+    }
+
+    @Override
+    public void update(World world) {
+        
     }
 }
 
