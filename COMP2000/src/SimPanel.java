@@ -1,9 +1,13 @@
-import javax.swing.*;
-import java.awt.*;
+import javax.swing.ImageIcon;
+import javax.swing.JPanel;
+import java.awt.Dimension;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Image;
 import java.net.URL;
 
-
 public class SimPanel extends JPanel {
+
     private final World world;
     private final Image backgroundImage;
 
