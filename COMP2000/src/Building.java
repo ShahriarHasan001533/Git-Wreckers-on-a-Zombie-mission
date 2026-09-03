@@ -1,176 +1,111 @@
-<<<<<<< Updated upstream
-import javax.swing.*;
-=======
 import javax.imageio.ImageIO;
->>>>>>> Stashed changes
 import java.awt.*;
+import java.awt.image.ImageObserver;
 import java.io.IOException;
 import java.net.URL;
 
 public class Building extends Entity {
-
     private final Image image;
     private final int width;
     private final int height;
-<<<<<<< Updated upstream
-    public Building (double x, double y, int width, int height) {
-        super(x, y);
-      //  this.image = image;
-        this.width = width;
-        this.height = height;
-        URL imageURL = Building.class.getResource("/building.png");
-        this.image = new ImageIcon(imageURL).getImage();
-=======
     private final int capacity;
-
     private int occupantCount;
 
-    public Building(
-            double x,
-            double y,
-            int width,
-            int height
-    ) {
+    public Building(double x, double y, int width, int height) {
         this(x, y, width, height, 10);
->>>>>>> Stashed changes
     }
 
-    public Building(
-            double x,
-            double y,
-            int width,
-            int height,
-            int capacity
-    ) {
+    public Building(double x, double y, int width, int height, int capacity) {
         super(x, y);
+        if (width > 0 && height > 0) {
+            if (capacity <= 0) {
+                throw new IllegalArgumentException("Building capacity must be positive");
+            } else {
+                this.width = width;
+                this.height = height;
+                this.capacity = capacity;
+                this.occupantCount = 0;
 
-        if (width <= 0 || height <= 0) {
-            throw new IllegalArgumentException(
-                    "Building dimensions must be positive"
-            );
-        }
+                Image loadedImage;
+                try {
+                    URL imageURL = Building.class.getResource("/Building.png");
+                    if (imageURL == null) {
+                        throw new IOException("Building.png could not be found");
+                    }
 
-        if (capacity <= 0) {
-            throw new IllegalArgumentException(
-                    "Building capacity must be positive"
-            );
-        }
+                    loadedImage = ImageIO.read(imageURL);
+                    if (loadedImage == null) {
+                        throw new IOException("Building.png is corrupted or unsupported");
+                    }
+                } catch (IOException exception) {
+                    throw new IllegalStateException("Failed to load the building image", exception);
+                }
 
-        this.width = width;
-        this.height = height;
-        this.capacity = capacity;
-        this.occupantCount = 0;
-
-        Image loadedImage;
-
-        try {
-            URL imageURL =
-                    Building.class.getResource("/Building.png");
-
-            if (imageURL == null) {
-                throw new IOException(
-                        "Building.png could not be found"
-                );
+                this.image = loadedImage;
             }
-
-            loadedImage = ImageIO.read(imageURL);
-
-            if (loadedImage == null) {
-                throw new IOException(
-                        "Building.png is corrupted or unsupported"
-                );
-            }
-
-        } catch (IOException exception) {
-            throw new IllegalStateException(
-                    "Failed to load the building image",
-                    exception
-            );
+        } else {
+            throw new IllegalArgumentException("Building dimensions must be positive");
         }
-
-        this.image = loadedImage;
     }
 
     public boolean isFull() {
-        return occupantCount >= capacity;
+        return this.occupantCount >= this.capacity;
     }
 
     public boolean canEnter() {
-        return !isFull();
+        return !this.isFull();
     }
 
     public boolean enter() {
-        if (isFull()) {
+        if (this.isFull()) {
             return false;
+        } else {
+            ++this.occupantCount;
+            return true;
         }
-
-        occupantCount++;
-        return true;
     }
 
     public boolean leave() {
-        if (occupantCount == 0) {
+        if (this.occupantCount == 0) {
             return false;
+        } else {
+            --this.occupantCount;
+            return true;
         }
-
-        occupantCount--;
-        return true;
     }
 
-    public boolean containsPoint(
-            double pointX,
-            double pointY
-    ) {
-        return pointX >= getX()
-                && pointX < getX() + width
-                && pointY >= getY()
-                && pointY < getY() + height;
+    public boolean containsPoint(double pointX, double pointY) {
+        return pointX >= this.getX() && pointX < this.getX() + (double)this.width && pointY >= this.getY() && pointY < this.getY() + (double)this.height;
     }
 
     public double getEntranceX() {
-        return getX() + width / 2.0;
+        return this.getX() + (double)this.width / (double)2.0F;
     }
 
     public double getEntranceY() {
-        return getY() + height;
+        return this.getY() + (double)this.height;
     }
 
     public int getOccupantCount() {
-        return occupantCount;
+        return this.occupantCount;
     }
 
     public int getCapacity() {
-        return capacity;
+        return this.capacity;
     }
 
     public int getWidth() {
-        return width;
+        return this.width;
     }
 
     public int getHeight() {
-        return height;
+        return this.height;
     }
-<<<<<<< Updated upstream
-}
 
-=======
-
-    @Override
     public void update(World world) {
-        // Buildings are stationary, so there is
-        // nothing to update each simulation tick.
     }
->>>>>>> Stashed changes
 
-    @Override
     public void draw(Graphics2D graphics) {
-        graphics.drawImage(
-                image,
-                (int) getX(),
-                (int) getY(),
-                width,
-                height,
-                null
-        );
+        graphics.drawImage(this.image, (int)this.getX(), (int)this.getY(), this.width, this.height, (ImageObserver)null);
     }
 }

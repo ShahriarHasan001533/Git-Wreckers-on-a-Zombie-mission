@@ -43,7 +43,7 @@ public abstract class Entity {
         );
     }
 
-    //public abstract void update(World world);
+    public abstract void update(World world);
 
     public abstract void draw(Graphics2D graphics);
 }

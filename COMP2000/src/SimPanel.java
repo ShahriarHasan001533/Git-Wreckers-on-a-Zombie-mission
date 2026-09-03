@@ -1,52 +1,36 @@
-import javax.swing.ImageIcon;
-import javax.swing.JPanel;
-import java.awt.Dimension;
-import java.awt.Graphics;
-import java.awt.Graphics2D;
-import java.awt.Image;
+import javax.swing.*;
+import java.awt.*;
 import java.net.URL;
+import java.util.List;
 
 public class SimPanel extends JPanel {
-
-    private final Building building;
+    private final List<Building> buildings;
     private final Image backgroundImage;
 
-    public SimPanel(Building building) {
-        this.building = building;
-
-        setPreferredSize(new Dimension(800, 600));
-
-        URL backgroundURL =
-                SimPanel.class.getResource("/Background.png");
-
+    public SimPanel(List<Building> buildings) {
+        this.buildings = buildings;
+        this.setPreferredSize(new Dimension(1000, 750));
+        URL backgroundURL = SimPanel.class.getResource("/Background.png");
         if (backgroundURL == null) {
-            throw new IllegalStateException(
-                    "background.png was not found"
-            );
+            throw new IllegalStateException("background.png was not found");
+        } else {
+            this.backgroundImage = (new ImageIcon(backgroundURL)).getImage();
         }
-
-        backgroundImage =
-                new ImageIcon(backgroundURL).getImage();
     }
 
-    @Override
     protected void paintComponent(Graphics graphics) {
         super.paintComponent(graphics);
+        Graphics2D graphics2D = (Graphics2D)graphics.create();
 
-        Graphics2D graphics2D =
-                (Graphics2D) graphics;
+        try {
+            graphics2D.drawImage(this.backgroundImage, 0, 0, this.getWidth(), this.getHeight(), this);
 
-        // Draw the background first
-        graphics2D.drawImage(
-                backgroundImage,
-                0,
-                0,
-                getWidth(),
-                getHeight(),
-                this
-        );
+            for(Building building : this.buildings) {
+                building.draw(graphics2D);
+            }
+        } finally {
+            graphics2D.dispose();
+        }
 
-        // Draw the building over the background
-        building.draw(graphics2D);
     }
 }
