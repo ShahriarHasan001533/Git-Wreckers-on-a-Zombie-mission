@@ -1,7 +1,4 @@
-import java.util.List;
-import javax.swing.JFrame;
-import javax.swing.SwingUtilities;
-import javax.swing.Timer;
+import javax.swing.*;
 
 
 public class Main {
@@ -19,11 +16,9 @@ public class Main {
             world.addEntity(rightBuilding);
 
 
-            List<Building> buildings =
-                    List.of(leftBuilding, rightBuilding);
 
             SimPanel simPanel =
-                    new SimPanel(buildings);
+                    new SimPanel(world);
 
             JFrame frame =
                     new JFrame("Zombie Simulation");
