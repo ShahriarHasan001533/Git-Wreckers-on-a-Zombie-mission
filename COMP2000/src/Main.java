@@ -1,5 +1,11 @@
+<<<<<<< Updated upstream
 import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
+=======
+import javax.swing.*;
+import java.util.List;
+
+>>>>>>> Stashed changes
 
 public class Main {
 
@@ -25,5 +31,6 @@ public class Main {
             frame.setResizable(false);
             frame.setVisible(true);
         });
+
     }
 }
