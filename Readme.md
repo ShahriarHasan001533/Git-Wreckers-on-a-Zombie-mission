@@ -54,6 +54,7 @@ Use the agreed division:
 git clone https://github.com/ShahriarHasan001533/Git-Wreckers-on-a-Zombie-mission
 
 cd Git-Wreckers-on-a-Zombie-mission
+cd COMP2000
 ```
 2. Compile the Java source files.
 ```bash
@@ -62,8 +63,11 @@ javac -d out src/*.java
 
 3. Run the `Main` class
 ```bash
-java -cp out Main
+java -cp "out;src" Main
 ```
+
+On macOS or Linux, use a colon instead of a semicolon: `java -cp "out:src" Main`.
+The `src` entry makes the PNG image assets available at runtime.
 
 4. Make sure already have image folder and check the version
 ```bash 
