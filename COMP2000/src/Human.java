@@ -18,6 +18,7 @@ public class Human extends Entity {
     private static final double FOOD_SEARCH_RADIUS = 250.0;
     private static final double LEAVE_SHELTER_ENERGY = 35.0;
     private static final double SPEED = 2.0;
+    private static final double BUILDING_ENTRY_DISTANCE = SPEED;
     private static final int CHARACTER_WIDTH = 38;
     private static final int CHARACTER_HEIGHT = 54;
     private static final int TICKS_PER_WALK_FRAME = 8;
@@ -135,6 +136,20 @@ public class Human extends Entity {
             leaveBuilding();
         }
 
+        // While they are still healthy, humans seek the closest available
+        // shelter. Once their energy is low they leave shelter to find food.
+        if (energy > LEAVE_SHELTER_ENERGY) {
+            Building building = findNearestAvailableBuilding(world);
+            if (building != null) {
+                moveTowards(building.getEntranceX(), building.getEntranceY(), world);
+                if (distanceTo(building.getEntranceX(), building.getEntranceY())
+                        <= BUILDING_ENTRY_DISTANCE) {
+                    enterBuilding(building);
+                }
+                return;
+            }
+        }
+
         Food food = findNearestFood(world);
         if (food == null) {
             wander(world);
@@ -164,6 +179,19 @@ public class Human extends Entity {
                 .map(entity -> (Food) entity)
                 .min(Comparator.comparingDouble(this::distanceTo))
                 .orElse(null);
+    }
+
+    private Building findNearestAvailableBuilding(World world) {
+        return world.getEntities().stream()
+                .filter(entity -> entity instanceof Building)
+                .map(entity -> (Building) entity)
+                .filter(Building::canEnter)
+                .min(Comparator.comparingDouble(this::distanceTo))
+                .orElse(null);
+    }
+
+    private double distanceTo(double targetX, double targetY) {
+        return Math.hypot(targetX - getX(), targetY - getY());
     }
 
     private void wander(World world) {
