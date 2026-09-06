@@ -133,17 +133,19 @@ public class SimPanel extends JPanel {
                         textY
                 );
             }
-            int humanCount = findEntities(Human.class).size();
+            int militaryCount = findEntities(Military.class).size();
+            // A Military unit is a Human subclass, so exclude it from the
+            // civilian count.
+            int humanCount = findEntities(Human.class).size() - militaryCount;
+            int zombieCount = findEntities(Zombie.class).size();
 
             graphics2D.setColor(new Color(0, 0, 0, 170));
-            graphics2D.fillRoundRect(15, 15, 130, 35, 10, 10);
+            graphics2D.fillRoundRect(15, 15, 150, 74, 10, 10);
 
             graphics2D.setColor(Color.WHITE);
-            graphics2D.drawString(
-                    "Humans: " + humanCount,
-                    25,
-                    38
-            );
+            graphics2D.drawString("Humans: " + humanCount, 25, 36);
+            graphics2D.drawString("Zombies: " + zombieCount, 25, 56);
+            graphics2D.drawString("Military: " + militaryCount, 25, 76);
 
         } finally {
             graphics2D.dispose();

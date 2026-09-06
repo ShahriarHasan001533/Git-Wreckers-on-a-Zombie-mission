@@ -1,0 +1,194 @@
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.geom.Point2D;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+
+/**
+ * A soldier that patrols the world and shoots zombies on sight.
+ *
+ * <p>A military unit is still a {@link Human} as far as the outbreak is
+ * concerned, so a {@link Zombie} treats it as a person. Unlike an ordinary
+ * human it does not starve, flee, or shelter in buildings. Its movement each
+ * tick is delegated to a {@link MovementBehaviour} strategy that is swapped
+ * between {@link PatrolBehaviour} and {@link HuntBehaviour} depending on
+ * whether a zombie is within {@link #DETECTION_RADIUS}.
+ */
+public class Military extends Human {
+
+    private static final double DETECTION_RADIUS = 260.0;
+    private static final double FIRING_RANGE = 140.0;
+    private static final double SPEED = 2.4;
+    private static final int FIRE_INTERVAL_TICKS = 12;
+    private static final int MUZZLE_FLASH_TICKS = 3;
+    private static final int CHARACTER_WIDTH = 34;
+    private static final int CHARACTER_HEIGHT = 52;
+
+    private final MovementBehaviour patrolBehaviour;
+    private final MovementBehaviour huntBehaviour;
+    private MovementBehaviour currentBehaviour;
+
+    private Zombie target;
+    private int fireCooldown;
+    private int muzzleFlashTicks;
+    private int kills;
+
+    /** Creates a unit that patrols the supplied route. */
+    public Military(double x, double y, List<Point2D> patrolRoute) {
+        super(x, y);
+        this.patrolBehaviour = new PatrolBehaviour(patrolRoute);
+        this.huntBehaviour = new HuntBehaviour();
+        this.currentBehaviour = patrolBehaviour;
+    }
+
+    /** Creates a unit that patrols a default box around its spawn point. */
+    public Military(double x, double y) {
+        this(x, y, defaultRoute(x, y));
+    }
+
+    private static List<Point2D> defaultRoute(double x, double y) {
+        List<Point2D> route = new ArrayList<>();
+        route.add(new Point2D.Double(x - 160, y));
+        route.add(new Point2D.Double(x, y - 110));
+        route.add(new Point2D.Double(x + 160, y));
+        route.add(new Point2D.Double(x, y + 110));
+        return route;
+    }
+
+    public Zombie getTarget() {
+        return target;
+    }
+
+    public int getKills() {
+        return kills;
+    }
+
+    public String getBehaviourName() {
+        return currentBehaviour.describe();
+    }
+
+    @Override
+    public void update(World world) {
+        if (!isActive()) {
+            return;
+        }
+
+        target = findNearestZombie(world);
+        currentBehaviour = (target == null) ? patrolBehaviour : huntBehaviour;
+        currentBehaviour.move(this, world);
+
+        if (fireCooldown > 0) {
+            fireCooldown--;
+        }
+        if (muzzleFlashTicks > 0) {
+            muzzleFlashTicks--;
+        }
+
+        try {
+            shoot();
+        } catch (NoTargetException noTarget) {
+            // Nothing to shoot this tick; the unit simply keeps patrolling.
+        }
+    }
+
+    /**
+     * Fires at the current target when it is alive and inside
+     * {@link #FIRING_RANGE}. A hit deactivates the zombie so {@link World}
+     * removes it after the tick.
+     *
+     * @throws NoTargetException if there is no live zombie in firing range
+     */
+    public void shoot() throws NoTargetException {
+        if (target == null
+                || !target.isActive()
+                || distanceTo(target) > FIRING_RANGE) {
+            throw new NoTargetException(
+                    "No zombie within firing range of the military unit at ("
+                            + (int) getX() + ", " + (int) getY() + ")");
+        }
+
+        if (fireCooldown > 0) {
+            return;
+        }
+
+        target.deactivate();
+        kills++;
+        fireCooldown = FIRE_INTERVAL_TICKS;
+        muzzleFlashTicks = MUZZLE_FLASH_TICKS;
+    }
+
+    /**
+     * Moves one {@link #SPEED} step towards a point, clamped to the world
+     * bounds. Called by the {@link MovementBehaviour} strategies.
+     */
+    public void moveTowards(double targetX, double targetY, World world) {
+        double xDifference = targetX - getX();
+        double yDifference = targetY - getY();
+        double distance = Math.hypot(xDifference, yDifference);
+        if (distance < 1.0e-6) {
+            return;
+        }
+
+        double nextX = getX() + (xDifference / distance) * SPEED;
+        double nextY = getY() + (yDifference / distance) * SPEED;
+        nextX = Math.max(CHARACTER_WIDTH / 2.0,
+                Math.min(world.getWidth() - CHARACTER_WIDTH / 2.0, nextX));
+        nextY = Math.max(CHARACTER_HEIGHT / 2.0,
+                Math.min(world.getHeight() - CHARACTER_HEIGHT / 2.0, nextY));
+        setPosition(nextX, nextY);
+    }
+
+    private Zombie findNearestZombie(World world) {
+        return world.getNearby(this, DETECTION_RADIUS).stream()
+                .filter(entity -> entity instanceof Zombie)
+                .map(entity -> (Zombie) entity)
+                .filter(Entity::isActive)
+                .min(Comparator.comparingDouble(this::distanceTo))
+                .orElse(null);
+    }
+
+    @Override
+    public void draw(Graphics2D graphics) {
+        if (!isActive()) {
+            return;
+        }
+
+        int centreX = (int) getX();
+        int centreY = (int) getY();
+
+        // Tracer line to the target on the ticks just after firing.
+        if (muzzleFlashTicks > 0 && target != null) {
+            graphics.setColor(new Color(255, 220, 90));
+            graphics.setStroke(new BasicStroke(2.0f));
+            graphics.drawLine(centreX, centreY,
+                    (int) target.getX(), (int) target.getY());
+        }
+
+        // Body.
+        graphics.setColor(new Color(60, 90, 55));
+        graphics.fillRoundRect(centreX - 11, centreY - 14, 22, 30, 8, 8);
+        // Head.
+        graphics.setColor(new Color(210, 180, 140));
+        graphics.fillOval(centreX - 7, centreY - 26, 14, 14);
+        // Helmet.
+        graphics.setColor(new Color(45, 70, 45));
+        graphics.fillArc(centreX - 9, centreY - 30, 18, 18, 0, 180);
+        // Rifle.
+        graphics.setColor(new Color(30, 30, 30));
+        graphics.setStroke(new BasicStroke(3.0f));
+        graphics.drawLine(centreX, centreY - 2, centreX + 16, centreY - 6);
+
+        // Firing-range ring while engaging.
+        if (currentBehaviour == huntBehaviour) {
+            graphics.setColor(new Color(200, 40, 40, 110));
+            graphics.setStroke(new BasicStroke(1.0f));
+            graphics.drawOval(
+                    centreX - (int) FIRING_RANGE,
+                    centreY - (int) FIRING_RANGE,
+                    (int) FIRING_RANGE * 2,
+                    (int) FIRING_RANGE * 2);
+        }
+    }
+}
