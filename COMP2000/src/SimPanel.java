@@ -3,11 +3,13 @@ import java.awt.*;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class SimPanel extends JPanel {
 
     private final World world;
     private final Image backgroundImage;
+    private final Runnable resetAction;
 
     private boolean started;
     private boolean paused;
@@ -18,7 +20,12 @@ public class SimPanel extends JPanel {
     private static final int BASE_TIMER_DELAY = 100;
 
     public SimPanel(World world) {
-        this.world = world;
+        this(world, () -> { });
+    }
+
+    public SimPanel(World world, Runnable resetAction) {
+        this.world = Objects.requireNonNull(world);
+        this.resetAction = Objects.requireNonNull(resetAction);
         started = false;
         paused = false;
         speedLevel = 3;
@@ -50,6 +57,10 @@ public class SimPanel extends JPanel {
             public void actionPerformed(
                     java.awt.event.ActionEvent event
             ) {
+                if (started) {
+                    resetAction.run();
+                    speedLevel = 3;
+                }
                 started = true;
                 paused = false;
                 repaint();

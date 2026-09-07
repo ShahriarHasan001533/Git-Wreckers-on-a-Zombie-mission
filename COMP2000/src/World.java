@@ -94,6 +94,12 @@ public class World {
         entities.removeIf(entity -> !entity.isActive());
     }
 
+    /** Clears the simulation state so the caller can build a fresh scenario. */
+    public void reset() {
+        entities.clear();
+        tick = 0;
+    }
+
     /** Adds food and humans at random locations at regular simulation intervals. */
     private void spawnEntities() {
         if (tick % FOOD_SPAWN_INTERVAL_TICKS == 0) {
