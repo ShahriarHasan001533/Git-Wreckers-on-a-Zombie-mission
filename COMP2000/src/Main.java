@@ -44,8 +44,10 @@ public class Main {
             frame.setVisible(true);
 
             Timer timer = new Timer(100, event -> {
-                world.update();
-                simPanel.repaint();
+                if (simPanel.isRunning()) {
+                    world.update();
+                    simPanel.repaint();
+                }
             });
 
             timer.start();
