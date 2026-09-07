@@ -9,8 +9,11 @@ public class Food extends Entity {
 
     public static final double EAT_DISTANCE = 16.0;
     private static final int FOOD_SIZE = 28;
+    // The simulation updates every 100 ms, so this is a 30-second lifetime.
+    private static final int LIFETIME_TICKS = 300;
     private final double energyValue;
     private final Image image;
+    private int ageInTicks;
 
     public Food(double x, double y, double energyValue) {
         super(x, y);
@@ -39,7 +42,10 @@ public class Food extends Entity {
 
     @Override
     public void update(World world) {
-        // Food does not move or change by itself.
+        ageInTicks++;
+        if (ageInTicks >= LIFETIME_TICKS) {
+            deactivate();
+        }
     }
 
     @Override
