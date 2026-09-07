@@ -43,7 +43,10 @@ public class World {
     }
 
     public void addEntity(Entity entity) {
-        entities.add(Objects.requireNonNull(entity));
+        entities.add(Objects.requireNonNull(
+                entity,
+                "Entity cannot be null"
+        ));
     }
 
     public List<Entity> getEntities() {
@@ -51,7 +54,7 @@ public class World {
     }
 
     public List<Entity> getNearby(Entity source, double radius) {
-        Objects.requireNonNull(source);
+        Objects.requireNonNull(source, "Source entity cannot be null");
 
         if (radius < 0) {
             throw new IllegalArgumentException(
