@@ -43,7 +43,10 @@ public class World {
     }
 
     public void addEntity(Entity entity) {
-        entities.add(Objects.requireNonNull(entity));
+        entities.add(Objects.requireNonNull(
+                entity,
+                "Entity cannot be null"
+        ));
     }
 
     public List<Entity> getEntities() {
@@ -51,7 +54,7 @@ public class World {
     }
 
     public List<Entity> getNearby(Entity source, double radius) {
-        Objects.requireNonNull(source);
+        Objects.requireNonNull(source, "Source entity cannot be null");
 
         if (radius < 0) {
             throw new IllegalArgumentException(
@@ -92,6 +95,12 @@ public class World {
 
     public void removeInactiveEntities() {
         entities.removeIf(entity -> !entity.isActive());
+    }
+
+    /** Clears the simulation state so the caller can build a fresh scenario. */
+    public void reset() {
+        entities.clear();
+        tick = 0;
     }
 
     /** Adds food and humans at random locations at regular simulation intervals. */
