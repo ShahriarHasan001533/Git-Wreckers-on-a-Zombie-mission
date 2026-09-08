@@ -33,7 +33,6 @@ public class SimPanel extends JPanel {
         setPreferredSize(
                 new Dimension(world.getWidth(), world.getHeight())
         );
-
         URL backgroundURL =
                 SimPanel.class.getResource("/Background.png");
 
@@ -92,11 +91,14 @@ public class SimPanel extends JPanel {
                 KeyStroke.getKeyStroke("pressed ADD"),
                 "increase-speed"
         );
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke('+'),
+                "increase-speed"
+        );
         getActionMap().put("increase-speed", new AbstractAction() {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent event) {
-                speedLevel = Math.min(MAX_SPEED_LEVEL, speedLevel + 1);
-                repaint();
+                increaseSpeed();
             }
         });
 
@@ -108,13 +110,27 @@ public class SimPanel extends JPanel {
                 KeyStroke.getKeyStroke("pressed SUBTRACT"),
                 "decrease-speed"
         );
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke('-'),
+                "decrease-speed"
+        );
         getActionMap().put("decrease-speed", new AbstractAction() {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent event) {
-                speedLevel = Math.max(MIN_SPEED_LEVEL, speedLevel - 1);
-                repaint();
+                decreaseSpeed();
             }
         });
+
+    }
+
+    private void increaseSpeed() {
+        speedLevel = Math.min(MAX_SPEED_LEVEL, speedLevel + 1);
+        repaint();
+    }
+
+    private void decreaseSpeed() {
+        speedLevel = Math.max(MIN_SPEED_LEVEL, speedLevel - 1);
+        repaint();
     }
 
     public boolean isRunning() {
