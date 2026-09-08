@@ -1,273 +1,223 @@
+import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.Image;
+import java.awt.image.BufferedImage;
 import java.io.File;
+import java.io.IOException;
 import java.net.URL;
-import java.util.Comparator;
+import java.util.List;
 import java.util.Random;
-import javax.swing.ImageIcon;
+import javax.imageio.ImageIO;
 
-/**
- * An undead entity that chases the nearest visible human and
- * infects them on contact. Zombies cannot enter buildings.
- */
+/** A zombie that wanders, chases visible civilians, and infects on contact. */
 public class Zombie extends Entity {
 
     private static final double CHASE_SPEED = 1.4;
     private static final double WANDER_SPEED = 0.6;
-    private static final double INFECT_DISTANCE = 12.0;
     private static final double DETECTION_RADIUS = 300.0;
-    private static final int CHARACTER_WIDTH = 38;
-    private static final int CHARACTER_HEIGHT = 54;
-    private static final int TICKS_PER_WALK_FRAME = 8;
+    private static final double INFECT_DISTANCE = 12.0;
+    private static final int WIDTH = 38;
+    private static final int HEIGHT = 54;
+    private static final int FRAME_TICKS = 8;
 
     private final Random random = new Random();
+
+    private final Image frontIdle;
+    private final Image[] frontWalk;
+    private final Image[] sideWalk;
+    private final Image backIdle;
+
     private Human target;
     private double directionX;
     private double directionY;
-    private int wanderTicksRemaining;
-    private final Image[] frontWalkFrames;
-    private final Image[] sideWalkFrames;
-    private final Image frontIdleFrame;
-    private final Image sideIdleFrame;
-    private final Image backFrame;
-    private int walkFrame;
-    private int ticksOnCurrentFrame;
+    private int wanderTicks;
+    private int animationTicks;
+    private int animationFrame;
+    private boolean moving;
     private boolean facingLeft;
     private Facing facing = Facing.FRONT;
-    private boolean moving;
 
     public Zombie(double x, double y) {
         super(x, y);
 
-        frontWalkFrames = new Image[]{
-                loadImage("/ZombieFrontWalk1.png"),
-                loadImage("/ZombieFrontWalk2.png"),
-                loadImage("/ZombieFrontWalk3.png"),
-                loadImage("/ZombieFrontWalk4.png")
-        };
+        BufferedImage sheet = loadSpriteSheet();
 
-        sideWalkFrames = new Image[]{
-                loadImage("/ZombieWalk1.png"),
-                loadImage("/ZombieWalk2.png"),
-                loadImage("/ZombieWalk3.png")
-        };
+        int frameWidth = sheet.getWidth() / 5;
+        int frameHeight = sheet.getHeight() / 2;
 
-        frontIdleFrame = loadImage("/ZombieFrontIdle.png");
-        sideIdleFrame = loadImage("/ZombieSideIdle.png");
-        backFrame = loadImage("/ZombieBack.png");
-        walkFrame = 0;
-        chooseNewWanderDirection();
-    }
+        frontIdle = crop(sheet, 0, 0, frameWidth, frameHeight);
 
-    /** Returns the human this zombie is currently chasing. */
-    public Human getTarget() {
-        return target;
+        frontWalk = new Image[4];
+        for (int column = 0; column < frontWalk.length; column++) {
+            frontWalk[column] = crop(
+                    sheet,
+                    column + 1,
+                    0,
+                    frameWidth,
+                    frameHeight
+            );
+        }
+
+        sideWalk = new Image[4];
+        for (int column = 0; column < sideWalk.length; column++) {
+            sideWalk[column] = crop(
+                    sheet,
+                    column,
+                    1,
+                    frameWidth,
+                    frameHeight
+            );
+        }
+
+        backIdle = crop(sheet, 4, 1, frameWidth, frameHeight);
+
+        chooseNewDirection();
     }
 
     @Override
     public void update(World world) {
-        if (!isActive()) {
-            return;
-        }
+        target = findTarget(world);
 
-        try {
-            target = findTarget(world);
-        } catch (NoTargetException e) {
-            target = null;
+        if (target == null) {
             wander(world);
             return;
         }
 
-        moveTowards(
-                target.getX(),
-                target.getY(),
-                CHASE_SPEED,
-                world
-        );
+        chase(world);
 
         if (distanceTo(target) <= INFECT_DISTANCE) {
-            infect(target);
+            target.infect();
         }
     }
 
-    /**
-     * Locates the nearest visible human within detection range.
-     * Hidden humans (sheltering inside buildings) are skipped.
-     *
-     * @return the closest reachable Human
-     * @throws NoTargetException when no visible human exists
-     */
-    public Human findTarget(World world)
-            throws NoTargetException {
+    /** Finds the closest active, visible civilian in range. */
+    private Human findTarget(World world) {
+        Human closest = null;
+        double closestDistance = DETECTION_RADIUS;
 
-        Human nearest = world.getNearby(
-                this, DETECTION_RADIUS
-        ).stream()
-                .filter(e -> e instanceof Human
-                        && !(e instanceof Military))
-                .map(e -> (Human) e)
-                .filter(h -> h.isActive() && !h.isHidden())
-                .min(Comparator.comparingDouble(
-                        this::distanceTo))
-                .orElse(null);
+        List<Entity> nearby =
+                world.getNearby(this, DETECTION_RADIUS);
 
-        if (nearest == null) {
-            throw new NoTargetException(
-                    "No visible humans in range"
-            );
+        for (Entity entity : nearby) {
+            if (!(entity instanceof Human)
+                    || entity instanceof Military) {
+                continue;
+            }
+
+            Human human = (Human) entity;
+            double distance = distanceTo(human);
+
+            if (!human.isHidden()
+                    && distance < closestDistance) {
+                closest = human;
+                closestDistance = distance;
+            }
         }
 
-        return nearest;
+        return closest;
     }
 
-    /**
-     * Infects a single human on contact. The victim is
-     * deactivated and the World spawns a new zombie at that
-     * position.
-     */
-    public void infect(Human human) {
-        if (human != null
-                && human.isActive()
-                && !human.isHidden()) {
-            human.infect();
-        }
-    }
-
-    // ---- movement ------------------------------------------------
-
-    private void moveTowards(double targetX, double targetY,
-                             double speed, World world) {
-
-        double xDifference = targetX - getX();
-        double yDifference = targetY - getY();
-        double distance =
-                Math.hypot(xDifference, yDifference);
+    private void chase(World world) {
+        double xDifference = target.getX() - getX();
+        double yDifference = target.getY() - getY();
+        double distance = Math.hypot(
+                xDifference,
+                yDifference
+        );
 
         if (distance > 0) {
             move(
                     xDifference / distance,
                     yDifference / distance,
-                    speed,
+                    CHASE_SPEED,
                     world
             );
         }
     }
 
     private void wander(World world) {
-        if (wanderTicksRemaining-- <= 0) {
-            chooseNewWanderDirection();
+        if (wanderTicks-- <= 0) {
+            chooseNewDirection();
         }
 
-        move(directionX, directionY, WANDER_SPEED, world);
+        move(
+                directionX,
+                directionY,
+                WANDER_SPEED,
+                world
+        );
     }
 
-    private void chooseNewWanderDirection() {
+    private void chooseNewDirection() {
         double angle = random.nextDouble() * Math.PI * 2;
+
         directionX = Math.cos(angle);
         directionY = Math.sin(angle);
-        wanderTicksRemaining = 30 + random.nextInt(40);
+
+        wanderTicks = 50 + random.nextInt(30);
     }
 
-    private void move(double xDirection, double yDirection,
-                      double speed, World world) {
-
+    private void move(
+            double xDirection,
+            double yDirection,
+            double speed,
+            World world
+    ) {
         moving = Math.abs(xDirection) > 0.01
                 || Math.abs(yDirection) > 0.01;
 
-        if (Math.abs(yDirection) > Math.abs(xDirection)) {
+        if (Math.abs(xDirection) > Math.abs(yDirection)) {
+            facing = Facing.SIDE;
+            facingLeft = xDirection < 0;
+        } else if (Math.abs(yDirection) > 0.01) {
             facing = yDirection < 0
                     ? Facing.BACK
                     : Facing.FRONT;
-        } else if (Math.abs(xDirection) > 0.01) {
-            facing = Facing.SIDE;
-            facingLeft = xDirection < 0;
         }
 
         double nextX = getX() + xDirection * speed;
         double nextY = getY() + yDirection * speed;
 
         nextX = Math.max(
-                CHARACTER_WIDTH / 2.0,
+                WIDTH / 2.0,
                 Math.min(
-                        world.getWidth()
-                                - CHARACTER_WIDTH / 2.0,
+                        world.getWidth() - WIDTH / 2.0,
                         nextX
                 )
         );
 
         nextY = Math.max(
-                CHARACTER_HEIGHT / 2.0,
+                HEIGHT / 2.0,
                 Math.min(
-                        world.getHeight()
-                                - CHARACTER_HEIGHT / 2.0,
+                        world.getHeight() - HEIGHT / 2.0,
                         nextY
                 )
         );
 
         setPosition(nextX, nextY);
-        advanceWalkAnimation();
-    }
 
-    // ---- sprites -------------------------------------------------
+        animationTicks++;
 
-    private Image loadImage(String imagePath) {
-        URL imageUrl =
-                Zombie.class.getResource(imagePath);
-
-        if (imageUrl != null) {
-            return new ImageIcon(imageUrl).getImage();
-        }
-
-        String fileName = imagePath.startsWith("/")
-                ? imagePath.substring(1)
-                : imagePath;
-
-        File sourceAsset = new File("src", fileName);
-
-        if (!sourceAsset.isFile()) {
-            sourceAsset = new File("COMP2000/src", fileName);
-        }
-
-        if (!sourceAsset.isFile()) {
-            throw new IllegalStateException(
-                    imagePath + " was not found"
-            );
-        }
-
-        return new ImageIcon(
-                sourceAsset.getAbsolutePath()
-        ).getImage();
-    }
-
-    private void advanceWalkAnimation() {
-        ticksOnCurrentFrame++;
-
-        if (ticksOnCurrentFrame >= TICKS_PER_WALK_FRAME) {
-            walkFrame = (walkFrame + 1) % 12;
-            ticksOnCurrentFrame = 0;
+        if (animationTicks >= FRAME_TICKS) {
+            animationFrame++;
+            animationTicks = 0;
         }
     }
 
     @Override
     public void draw(Graphics2D graphics) {
-        if (!isActive()) {
-            return;
-        }
+        Image frame = currentFrame();
 
-        Image frame = getCurrentFrame();
-
-        int left = (int) getX() - CHARACTER_WIDTH / 2;
-
-        int top = (int) getY() - CHARACTER_HEIGHT / 2
-                - (moving && walkFrame % 2 == 1 ? 2 : 0);
+        int left = (int) getX() - WIDTH / 2;
+        int top = (int) getY() - HEIGHT / 2;
 
         if (facing == Facing.SIDE && facingLeft) {
             graphics.drawImage(
                     frame,
-                    left + CHARACTER_WIDTH,
+                    left + WIDTH,
                     top,
-                    -CHARACTER_WIDTH,
-                    CHARACTER_HEIGHT,
+                    -WIDTH,
+                    HEIGHT,
                     null
             );
         } else {
@@ -275,36 +225,105 @@ public class Zombie extends Entity {
                     frame,
                     left,
                     top,
-                    CHARACTER_WIDTH,
-                    CHARACTER_HEIGHT,
+                    WIDTH,
+                    HEIGHT,
                     null
             );
         }
     }
 
-    private Image getCurrentFrame() {
+    private Image currentFrame() {
         if (!moving) {
-            if (facing == Facing.SIDE) {
-                return sideIdleFrame;
-            }
             return facing == Facing.BACK
-                    ? backFrame
-                    : frontIdleFrame;
+                    ? backIdle
+                    : frontIdle;
         }
 
         if (facing == Facing.SIDE) {
-            return sideWalkFrames[
-                    walkFrame % sideWalkFrames.length
+            return sideWalk[
+                    animationFrame % sideWalk.length
             ];
         }
 
         if (facing == Facing.BACK) {
-            return backFrame;
+            return backIdle;
         }
 
-        return frontWalkFrames[
-                walkFrame % frontWalkFrames.length
+        return frontWalk[
+                animationFrame % frontWalk.length
         ];
+    }
+
+    private BufferedImage loadSpriteSheet() {
+        try {
+            URL resource =
+                    Zombie.class.getResource(
+                            "/ZombieSprites.png"
+                    );
+
+            if (resource != null) {
+                return ImageIO.read(resource);
+            }
+
+            File sourceFile =
+                    new File("src", "ZombieSprites.png");
+
+            if (!sourceFile.isFile()) {
+                sourceFile = new File(
+                        "COMP2000/src",
+                        "ZombieSprites.png"
+                );
+            }
+
+            if (sourceFile.isFile()) {
+                return ImageIO.read(sourceFile);
+            }
+        } catch (IOException exception) {
+            // Use fallback sprite below.
+        }
+
+        return createFallbackSheet();
+    }
+
+    private Image crop(
+            BufferedImage sheet,
+            int column,
+            int row,
+            int frameWidth,
+            int frameHeight
+    ) {
+        return sheet.getSubimage(
+                column * frameWidth,
+                row * frameHeight,
+                frameWidth,
+                frameHeight
+        );
+    }
+
+    private BufferedImage createFallbackSheet() {
+        BufferedImage sheet = new BufferedImage(
+                WIDTH * 5,
+                HEIGHT * 2,
+                BufferedImage.TYPE_INT_ARGB
+        );
+
+        Graphics2D graphics = sheet.createGraphics();
+
+        graphics.setColor(new Color(86, 145, 73));
+        graphics.fillOval(
+                5,
+                2,
+                WIDTH - 10,
+                HEIGHT - 4
+        );
+
+        graphics.setColor(Color.BLACK);
+        graphics.fillOval(11, 16, 5, 7);
+        graphics.fillOval(WIDTH - 16, 16, 5, 7);
+
+        graphics.dispose();
+
+        return sheet;
     }
 
     private enum Facing {
