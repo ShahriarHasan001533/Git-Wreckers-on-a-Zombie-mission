@@ -11,11 +11,17 @@ public class SimPanel extends JPanel {
 
     private boolean started;
     private boolean paused;
+    private int speedLevel;
+
+    private static final int MIN_SPEED_LEVEL = 1;
+    private static final int MAX_SPEED_LEVEL = 5;
+    private static final int BASE_TIMER_DELAY = 100;
 
     public SimPanel(World world) {
         this.world = world;
         started = false;
         paused = false;
+        speedLevel = 3;
 
         setPreferredSize(
                 new Dimension(world.getWidth(), world.getHeight())
@@ -66,10 +72,51 @@ public class SimPanel extends JPanel {
                 }
             }
         });
+
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke("pressed PLUS"),
+                "increase-speed"
+        );
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke("pressed ADD"),
+                "increase-speed"
+        );
+        getActionMap().put("increase-speed", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                speedLevel = Math.min(MAX_SPEED_LEVEL, speedLevel + 1);
+                repaint();
+            }
+        });
+
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke("pressed MINUS"),
+                "decrease-speed"
+        );
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke("pressed SUBTRACT"),
+                "decrease-speed"
+        );
+        getActionMap().put("decrease-speed", new AbstractAction() {
+            @Override
+            public void actionPerformed(java.awt.event.ActionEvent event) {
+                speedLevel = Math.max(MIN_SPEED_LEVEL, speedLevel - 1);
+                repaint();
+            }
+        });
     }
 
     public boolean isRunning() {
         return started && !paused;
+    }
+
+    /** Returns the current timer delay requested by the speed controls. */
+    public int getTimerDelay() {
+        return BASE_TIMER_DELAY - (speedLevel - MIN_SPEED_LEVEL) * 15;
+    }
+
+    private String getSpeedLabel() {
+        return speedLevel + "/" + MAX_SPEED_LEVEL;
     }
 
     @Override
@@ -133,19 +180,23 @@ public class SimPanel extends JPanel {
                         textY
                 );
             }
-            int militaryCount = findEntities(Military.class).size();
-            // A Military unit is a Human subclass, so exclude it from the
-            // civilian count.
-            int humanCount = findEntities(Human.class).size() - militaryCount;
-            int zombieCount = findEntities(Zombie.class).size();
+            int humanCount = countActiveEntitiesNamed("Human");
+            int zombieCount = countActiveEntitiesNamed("Zombie");
+            int militaryCount = countActiveEntitiesNamed("Military");
+            int foodCount = countActiveEntitiesNamed("Food");
 
             graphics2D.setColor(new Color(0, 0, 0, 170));
-            graphics2D.fillRoundRect(15, 15, 150, 74, 10, 10);
+            graphics2D.fillRoundRect(15, 15, 220, 116, 12, 12);
 
             graphics2D.setColor(Color.WHITE);
-            graphics2D.drawString("Humans: " + humanCount, 25, 36);
-            graphics2D.drawString("Zombies: " + zombieCount, 25, 56);
-            graphics2D.drawString("Military: " + militaryCount, 25, 76);
+            graphics2D.drawString("Tick: " + world.getTick(), 25, 38);
+            graphics2D.drawString("Humans: " + humanCount, 25, 58);
+            graphics2D.drawString("Zombies: " + zombieCount, 25, 78);
+            graphics2D.drawString("Military: " + militaryCount, 25, 98);
+            graphics2D.drawString("Food: " + foodCount, 115, 58);
+            graphics2D.drawString("Speed: " + getSpeedLabel(), 115, 78);
+            graphics2D.setColor(Color.LIGHT_GRAY);
+            graphics2D.drawString("+/- speed", 115, 98);
 
         } finally {
             graphics2D.dispose();
@@ -230,5 +281,16 @@ public class SimPanel extends JPanel {
         }
 
         return matchingEntities;
+    }
+
+    private int countActiveEntitiesNamed(String className) {
+        int count = 0;
+        for (Entity entity : world.getEntities()) {
+            if (entity.isActive()
+                    && entity.getClass().getSimpleName().equals(className)) {
+                count++;
+            }
+        }
+        return count;
     }
 }

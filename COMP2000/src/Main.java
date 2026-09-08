@@ -47,9 +47,15 @@ public class Main {
             frame.setResizable(false);
             frame.setVisible(true);
 
-            Timer timer = new Timer(100, event -> {
-                world.update();
-                simPanel.repaint();
+            Timer timer = new Timer(100, null);
+            timer.addActionListener(event -> {
+                if (timer.getDelay() != simPanel.getTimerDelay()) {
+                    timer.setDelay(simPanel.getTimerDelay());
+                }
+                if (simPanel.isRunning()) {
+                    world.update();
+                    simPanel.repaint();
+                }
             });
 
             timer.start();
