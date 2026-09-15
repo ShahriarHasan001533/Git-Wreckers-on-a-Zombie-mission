@@ -9,12 +9,14 @@ import java.util.List;
  */
 public class PatrolBehaviour implements MovementBehaviour {
 
+    /** How close counts as "reached this waypoint". */
     private static final double ARRIVAL_DISTANCE = 6.0;
 
-    private final List<Point2D> route;
-    private int waypointIndex;
+    private final List<Point2D> route;   // the fixed loop of points to walk
+    private int waypointIndex;           // which point we are currently heading to
 
     public PatrolBehaviour(List<Point2D> route) {
+        // Guard: a patrol with no waypoints makes no sense - fail fast.
         if (route == null || route.isEmpty()) {
             throw new IllegalArgumentException(
                     "Patrol route must contain at least one waypoint");
@@ -25,9 +27,12 @@ public class PatrolBehaviour implements MovementBehaviour {
 
     @Override
     public void move(Military unit, World world) {
+        // Head towards the current waypoint (Military does the actual stepping).
         Point2D waypoint = route.get(waypointIndex);
         unit.moveTowards(waypoint.getX(), waypoint.getY(), world);
 
+        // If we have arrived, advance to the next point; wrap round at the end
+        // with modulo so the patrol loops forever.
         double distance = Math.hypot(
                 waypoint.getX() - unit.getX(),
                 waypoint.getY() - unit.getY());
@@ -38,6 +43,6 @@ public class PatrolBehaviour implements MovementBehaviour {
 
     @Override
     public String describe() {
-        return "Patrolling";
+        return "Patrolling";   // shown in the HUD
     }
 }
