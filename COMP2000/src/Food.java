@@ -17,13 +17,15 @@ public class Food extends Entity {
 
     public Food(double x, double y, double energyValue) {
         super(x, y);
-
         if (energyValue <= 0) {
             throw new IllegalArgumentException("Food energy must be positive");
         }
-
         this.energyValue = energyValue;
         this.image = loadImage(selectImagePath(x, y));
+    }
+
+    public <T extends Number> Food(double x, double y, T energyValue) {
+        this(x, y, energyValue.doubleValue());
     }
 
     public double getEnergyValue() {
