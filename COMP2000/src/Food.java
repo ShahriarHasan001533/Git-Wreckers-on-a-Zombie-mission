@@ -9,7 +9,7 @@ public class Food extends Entity {
 
     public static final double EAT_DISTANCE = 16.0;
     private static final int FOOD_SIZE = 28;
-    // The simulation updates every 100 ms, so this is a 30-second lifetime.
+    // Food expires after 300 simulation updates.
     private static final int LIFETIME_TICKS = 300;
     private final double energyValue;
     private final Image image;
@@ -22,10 +22,6 @@ public class Food extends Entity {
         }
         this.energyValue = energyValue;
         this.image = loadImage(selectImagePath(x, y));
-    }
-
-    public <T extends Number> Food(double x, double y, T energyValue) {
-        this(x, y, energyValue.doubleValue());
     }
 
     public double getEnergyValue() {
@@ -60,12 +56,12 @@ public class Food extends Entity {
     private String selectImagePath(double x, double y) {
         int selection = Math.floorMod((int) Math.round(x * 31 + y * 17), 3);
         if (selection == 0) {
-            return "/FoodApple.png";
+            return "/HumanFoodAssets/FoodApple.png";
         }
         if (selection == 1) {
-            return "/FoodPizza.png";
+            return "/HumanFoodAssets/FoodPizza.png";
         }
-        return "/FoodBurger.png";
+        return "/HumanFoodAssets/FoodBurger.png";
     }
 
     private Image loadImage(String imagePath) {
@@ -75,13 +71,7 @@ public class Food extends Entity {
         }
 
         String fileName = imagePath.substring(1);
-        File sourceAsset = new File("src/HumanFoodAssets", fileName);
-        if (!sourceAsset.isFile()) {
-            sourceAsset = new File("COMP2000/src/HumanFoodAssets", fileName);
-        }
-        if (!sourceAsset.isFile()) {
-            sourceAsset = new File("src", fileName);
-        }
+        File sourceAsset = new File("src", fileName);
         if (!sourceAsset.isFile()) {
             sourceAsset = new File("COMP2000/src", fileName);
         }
