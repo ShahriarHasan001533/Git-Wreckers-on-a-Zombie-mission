@@ -254,7 +254,13 @@ public class Human extends Entity {
         // When Java is run with only the generated out directory on its
         // classpath, image assets remain in src rather than being duplicated.
         String fileName = imagePath.startsWith("/") ? imagePath.substring(1) : imagePath;
-        File sourceAsset = new File("src", fileName);
+        File sourceAsset = new File("src/HumanFoodAssets", fileName);
+        if (!sourceAsset.isFile()) {
+            sourceAsset = new File("COMP2000/src/HumanFoodAssets", fileName);
+        }
+        if (!sourceAsset.isFile()) {
+            sourceAsset = new File("src", fileName);
+        }
         if (!sourceAsset.isFile()) {
             sourceAsset = new File("COMP2000/src", fileName);
         }

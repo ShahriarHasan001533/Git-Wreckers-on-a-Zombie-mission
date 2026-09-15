@@ -75,7 +75,13 @@ public class Food extends Entity {
         }
 
         String fileName = imagePath.substring(1);
-        File sourceAsset = new File("src", fileName);
+        File sourceAsset = new File("src/HumanFoodAssets", fileName);
+        if (!sourceAsset.isFile()) {
+            sourceAsset = new File("COMP2000/src/HumanFoodAssets", fileName);
+        }
+        if (!sourceAsset.isFile()) {
+            sourceAsset = new File("src", fileName);
+        }
         if (!sourceAsset.isFile()) {
             sourceAsset = new File("COMP2000/src", fileName);
         }
