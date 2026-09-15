@@ -11,6 +11,7 @@ public final class HumanFoodTest {
         testFoodExpiresAfter300Updates();
         testHumanEntersAndLeavesBuilding();
         testStarvationDeactivatesHuman();
+        testSimulationAssetsLoadWithoutSourceClasspath();
         System.out.println("HumanFoodTest passed");
     }
 
@@ -92,5 +93,12 @@ public final class HumanFoodTest {
         }
 
         assert !human.isActive();
+    }
+
+    private static void testSimulationAssetsLoadWithoutSourceClasspath() {
+        World world = new World(1000, 750);
+
+        new Building(155, 125, 150, 100);
+        new SimPanel(world);
     }
 }
