@@ -23,24 +23,28 @@ import javax.swing.ImageIcon;
  */
 public class Military extends Human {
 
-    private static final double DETECTION_RADIUS = 260.0;
-    private static final double FIRING_RANGE = 140.0;
-    private static final double SPEED = 2.4;
-    private static final int FIRE_INTERVAL_TICKS = 12;
-    private static final int MUZZLE_FLASH_TICKS = 3;
+    // --- Tuning constants (all distances in pixels, all times in ticks) ---
+    private static final double DETECTION_RADIUS = 260.0;   // how far the unit can "see" zombies
+    private static final double FIRING_RANGE = 140.0;        // how close a zombie must be to be shot
+    private static final double SPEED = 2.4;                 // pixels moved per tick (faster than a Human)
+    private static final int FIRE_INTERVAL_TICKS = 12;       // reload time between shots
+    private static final int MUZZLE_FLASH_TICKS = 3;         // how long the tracer line stays drawn
     private static final int CHARACTER_WIDTH = 38;
     private static final int CHARACTER_HEIGHT = 54;
     private static final int TICKS_PER_WALK_FRAME = 8;
 
-    private final MovementBehaviour patrolBehaviour;
-    private final MovementBehaviour huntBehaviour;
-    private MovementBehaviour currentBehaviour;
+    // --- Strategy pattern: two movement behaviours, created once, swapped at runtime ---
+    private final MovementBehaviour patrolBehaviour;   // used when no zombie is nearby
+    private final MovementBehaviour huntBehaviour;     // used when a zombie has been detected
+    private MovementBehaviour currentBehaviour;        // points at whichever one applies this tick
 
-    private Zombie target;
-    private int fireCooldown;
-    private int muzzleFlashTicks;
-    private int kills;
+    // --- Combat state ---
+    private Zombie target;         // the zombie currently being hunted/shot, or null
+    private int fireCooldown;      // ticks left before the unit can fire again
+    private int muzzleFlashTicks;  // ticks left to draw the tracer line
+    private int kills;             // zombies this unit has shot (shown for debugging/HUD)
 
+    // --- Sprite + walk-animation state (same scheme as Human/Zombie) ---
     private final Image[] frontWalkFrames;
     private final Image[] sideWalkFrames;
     private final Image frontIdleFrame;
@@ -54,7 +58,10 @@ public class Military extends Human {
 
     /** Creates a unit that patrols the supplied route. */
     public Military(double x, double y, List<Point2D> patrolRoute) {
-        super(x, y);
+        super(x, y);   // reuse Human's construction (identity, position); we override its behaviour below
+
+        // Build both strategy objects up front. update() only ever switches the
+        // pointer between them - it never creates new ones.
         this.patrolBehaviour = new PatrolBehaviour(patrolRoute);
         this.huntBehaviour = new HuntBehaviour();
         this.currentBehaviour = patrolBehaviour;
@@ -75,11 +82,15 @@ public class Military extends Human {
         backFrame = loadImage("/MilitaryBack.png");
     }
 
-    /** Creates a unit that patrols a default box around its spawn point. */
+    /**
+     * Convenience constructor: patrols a default diamond of 4 waypoints around
+     * its spawn point. Delegates to the main constructor above.
+     */
     public Military(double x, double y) {
         this(x, y, defaultRoute(x, y));
     }
 
+    /** Four waypoints (left, up, right, down) forming a diamond around (x, y). */
     private static List<Point2D> defaultRoute(double x, double y) {
         List<Point2D> route = new ArrayList<>();
         route.add(new Point2D.Double(x - 160, y));
@@ -89,6 +100,7 @@ public class Military extends Human {
         return route;
     }
 
+    /** The zombie this unit is currently hunting (used by {@link HuntBehaviour}). */
     public Zombie getTarget() {
         return target;
     }
@@ -97,10 +109,15 @@ public class Military extends Human {
         return kills;
     }
 
+    /** "Patrolling" or "Engaging" - the label of the active strategy. */
     public String getBehaviourName() {
         return currentBehaviour.describe();
     }
 
+    /**
+     * One tick of soldier AI. Called by {@link World#update()} through the
+     * polymorphic {@code Entity.update(World)} contract.
+     */
     @Override
     public void update(World world) {
         if (!isActive()) {
@@ -108,10 +125,18 @@ public class Military extends Human {
         }
 
         moving = false;
+
+        // Step 1: sense - find the closest zombie within DETECTION_RADIUS (null if none).
         target = findNearestZombie(world);
+
+        // Step 2: decide - swap the movement strategy based on the situation.
+        //         This one line is the Strategy pattern in action.
         currentBehaviour = (target == null) ? patrolBehaviour : huntBehaviour;
+
+        // Step 3: act - let the chosen strategy do this tick's movement.
         currentBehaviour.move(this, world);
 
+        // Step 4: tick down the reload timer and the tracer-flash timer.
         if (fireCooldown > 0) {
             fireCooldown--;
         }
@@ -119,6 +144,9 @@ public class Military extends Human {
             muzzleFlashTicks--;
         }
 
+        // Step 5: try to shoot. shoot() throws if there is nothing valid in
+        //         range; that is the normal "still patrolling" case, so we
+        //         swallow the checked exception here.
         try {
             shoot();
         } catch (NoTargetException noTarget) {
@@ -134,6 +162,8 @@ public class Military extends Human {
      * @throws NoTargetException if there is no live zombie in firing range
      */
     public void shoot() throws NoTargetException {
+        // No target, target already dead, or target out of range -> not a shot.
+        // Signalled with a custom checked exception rather than a silent return.
         if (target == null
                 || !target.isActive()
                 || distanceTo(target) > FIRING_RANGE) {
@@ -142,10 +172,12 @@ public class Military extends Human {
                             + (int) getX() + ", " + (int) getY() + ")");
         }
 
+        // In range but still reloading - valid target, just no shot yet.
         if (fireCooldown > 0) {
             return;
         }
 
+        // Hit: kill the zombie (World sweeps it out after the tick), then reload.
         target.deactivate();
         kills++;
         fireCooldown = FIRE_INTERVAL_TICKS;
@@ -158,41 +190,49 @@ public class Military extends Human {
      * the {@link MovementBehaviour} strategies.
      */
     public void moveTowards(double targetX, double targetY, World world) {
+        // Vector from here to the target point.
         double xDifference = targetX - getX();
         double yDifference = targetY - getY();
         double distance = Math.hypot(xDifference, yDifference);
         if (distance < 1.0e-6) {
-            return;
+            return;   // already there - nothing to do
         }
 
+        // Normalise to a unit direction (length 1).
         double directionX = xDifference / distance;
         double directionY = yDifference / distance;
 
+        // Pick which sprite set to show from the dominant axis of travel.
         if (Math.abs(directionY) > Math.abs(directionX)) {
             facing = directionY < 0 ? Facing.BACK : Facing.FRONT;
         } else if (Math.abs(directionX) > 0.01) {
             facing = Facing.SIDE;
-            facingLeft = directionX < 0;
+            facingLeft = directionX < 0;   // side sprite is drawn mirrored when true
         }
 
+        // Step one SPEED increment, then clamp so the unit stays on screen.
         double nextX = getX() + directionX * SPEED;
         double nextY = getY() + directionY * SPEED;
         nextX = Math.max(CHARACTER_WIDTH / 2.0,
                 Math.min(world.getWidth() - CHARACTER_WIDTH / 2.0, nextX));
         nextY = Math.max(CHARACTER_HEIGHT / 2.0,
                 Math.min(world.getHeight() - CHARACTER_HEIGHT / 2.0, nextY));
-        setPosition(nextX, nextY);
+        setPosition(nextX, nextY);   // inherited from Entity; only the entity moves itself
 
         moving = true;
         advanceWalkAnimation();
     }
 
+    /**
+     * The unit's "eyes": asks the World for everything within DETECTION_RADIUS,
+     * keeps the live zombies, and returns the closest one (or null).
+     */
     private Zombie findNearestZombie(World world) {
         return world.getNearby(this, DETECTION_RADIUS).stream()
-                .filter(entity -> entity instanceof Zombie)
+                .filter(entity -> entity instanceof Zombie)   // zombies only
                 .map(entity -> (Zombie) entity)
-                .filter(Entity::isActive)
-                .min(Comparator.comparingDouble(this::distanceTo))
+                .filter(Entity::isActive)                      // not already dead
+                .min(Comparator.comparingDouble(this::distanceTo))  // nearest wins
                 .orElse(null);
     }
 
@@ -205,6 +245,11 @@ public class Military extends Human {
         }
     }
 
+    /**
+     * Draws the soldier sprite, then the combat overlay on top. Called by
+     * {@link SimPanel} through the polymorphic {@code Entity.draw(Graphics2D)}
+     * contract.
+     */
     @Override
     public void draw(Graphics2D graphics) {
         if (!isActive()) {
@@ -212,6 +257,8 @@ public class Military extends Human {
         }
 
         Image frame = getCurrentFrame();
+        // Position is the unit's centre, so offset by half the sprite size.
+        // The extra -2 on odd frames is a small vertical bob while walking.
         int left = (int) getX() - CHARACTER_WIDTH / 2;
         int top = (int) getY() - CHARACTER_HEIGHT / 2
                 - (moving && walkFrame % 2 == 1 ? 2 : 0);
@@ -251,6 +298,7 @@ public class Military extends Human {
         }
     }
 
+    /** Picks the sprite for the current facing + moving/idle + walk-cycle frame. */
     private Image getCurrentFrame() {
         if (!moving) {
             if (facing == Facing.SIDE) {
@@ -268,6 +316,7 @@ public class Military extends Human {
         return frontWalkFrames[walkFrame % frontWalkFrames.length];
     }
 
+    /** Loads a bundled PNG by resource path, with a fallback to the src folder. */
     private Image loadImage(String imagePath) {
         URL imageUrl = Military.class.getResource(imagePath);
         if (imageUrl != null) {
@@ -287,6 +336,7 @@ public class Military extends Human {
         return new ImageIcon(sourceAsset.getAbsolutePath()).getImage();
     }
 
+    /** Which set of sprites to show, chosen from the direction of travel. */
     private enum Facing {
         FRONT,
         SIDE,
