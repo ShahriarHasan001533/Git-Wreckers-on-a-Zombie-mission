@@ -7,6 +7,9 @@ import java.util.Iterator;
  * need are built by the factory methods below instead of being separate
  * classes. The {@link MilitaryState} a unit is in decides <em>when</em> each
  * behaviour is used.
+ *
+ * <p>This is the Strategy interface: the factory methods provide interchangeable
+ * movement algorithms, while Military and its states supply their context.
  */
 @FunctionalInterface
 public interface MovementBehaviour {

@@ -37,6 +37,7 @@ import javax.swing.ImageIcon;
  */
 public class Military extends Human {
 
+    // Distances are measured in pixels; cooldowns and animation durations use ticks.
     private static final double DETECTION_RADIUS = 260.0;
     private static final double SPEED = 2.4;
     private static final int MUZZLE_FLASH_TICKS = 3;
@@ -78,6 +79,7 @@ public class Military extends Human {
         Objects.requireNonNull(route, "Route cannot be null");
         this.weapon = Objects.requireNonNull(weapon, "Weapon cannot be null");
         this.ammo = weapon.magazineSize();
+        // Create the movement strategies once; states decide when to invoke them.
         this.patrolState = new PatrolState(MovementBehaviour.patrol(route));
         this.engageState = new EngageState(MovementBehaviour.hunt());
         this.state = patrolState;
@@ -143,6 +145,7 @@ public class Military extends Human {
             muzzleFlashTicks--;
         }
 
+        // The active state handles sensing, movement, combat and state transitions.
         state.update(this, world);
     }
 
@@ -246,6 +249,7 @@ public class Military extends Human {
             return;
         }
 
+        // Normalise the displacement so movement speed is independent of distance.
         double directionX = xDifference / distance;
         double directionY = yDifference / distance;
 
@@ -256,6 +260,7 @@ public class Military extends Human {
             facingLeft = directionX < 0;
         }
 
+        // Keep the full sprite inside the world after taking one movement step.
         double nextX = getX() + directionX * SPEED;
         double nextY = getY() + directionY * SPEED;
         nextX = Math.max(CHARACTER_WIDTH / 2.0,
