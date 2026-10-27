@@ -77,7 +77,7 @@ public class Main {
 
     private static void populateWorld(World world, Random random) {
         world.addEntity(new Building(155, 125, 150, 100));
-        world.addEntity(new Building(580, 490, 150, 100));
+        world.addEntity(new Building(580, 490, 150, 100, 3, new EmergencyAdmissionPolicy(2, 60)));
 
         // Traps are added before the characters so they are drawn
         // underneath anyone walking over them.
