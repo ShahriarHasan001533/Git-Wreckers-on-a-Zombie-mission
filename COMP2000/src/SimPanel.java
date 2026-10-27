@@ -1,9 +1,10 @@
-import javax.swing.*;
 import java.awt.*;
+import java.io.File;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import javax.swing.*;
 
 public class SimPanel extends JPanel {
 
@@ -33,17 +34,23 @@ public class SimPanel extends JPanel {
         setPreferredSize(
                 new Dimension(world.getWidth(), world.getHeight())
         );
-
         URL backgroundURL =
                 SimPanel.class.getResource("/Background.png");
 
-        if (backgroundURL == null) {
-            throw new IllegalStateException(
-                    "Background.png could not be found"
-            );
+        if (backgroundURL != null) {
+            backgroundImage = new ImageIcon(backgroundURL).getImage();
+        } else {
+            File sourceAsset = new File("src", "Background.png");
+            if (!sourceAsset.isFile()) {
+                sourceAsset = new File("COMP2000/src", "Background.png");
+            }
+            if (!sourceAsset.isFile()) {
+                throw new IllegalStateException(
+                        "Background.png could not be found"
+                );
+            }
+            backgroundImage = new ImageIcon(sourceAsset.getAbsolutePath()).getImage();
         }
-
-        backgroundImage = new ImageIcon(backgroundURL).getImage();
         setupKeyBindings();
     }
     private void setupKeyBindings() {
@@ -92,11 +99,18 @@ public class SimPanel extends JPanel {
                 KeyStroke.getKeyStroke("pressed ADD"),
                 "increase-speed"
         );
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke('+'),
+                "increase-speed"
+        );
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke("shift pressed EQUALS"),
+                "increase-speed"
+        );
         getActionMap().put("increase-speed", new AbstractAction() {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent event) {
-                speedLevel = Math.min(MAX_SPEED_LEVEL, speedLevel + 1);
-                repaint();
+                increaseSpeed();
             }
         });
 
@@ -108,13 +122,27 @@ public class SimPanel extends JPanel {
                 KeyStroke.getKeyStroke("pressed SUBTRACT"),
                 "decrease-speed"
         );
+        getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
+                KeyStroke.getKeyStroke('-'),
+                "decrease-speed"
+        );
         getActionMap().put("decrease-speed", new AbstractAction() {
             @Override
             public void actionPerformed(java.awt.event.ActionEvent event) {
-                speedLevel = Math.max(MIN_SPEED_LEVEL, speedLevel - 1);
-                repaint();
+                decreaseSpeed();
             }
         });
+
+    }
+
+    private void increaseSpeed() {
+        speedLevel = Math.min(MAX_SPEED_LEVEL, speedLevel + 1);
+        repaint();
+    }
+
+    private void decreaseSpeed() {
+        speedLevel = Math.max(MIN_SPEED_LEVEL, speedLevel - 1);
+        repaint();
     }
 
     public boolean isRunning() {
@@ -196,8 +224,10 @@ public class SimPanel extends JPanel {
             int militaryCount = countActiveEntitiesNamed("Military");
             int foodCount = countActiveEntitiesNamed("Food");
 
+            BattleReport battle = BattleReport.of(world.getEntities());
+
             graphics2D.setColor(new Color(0, 0, 0, 170));
-            graphics2D.fillRoundRect(15, 15, 220, 116, 12, 12);
+            graphics2D.fillRoundRect(15, 15, 220, 136, 12, 12);
 
             graphics2D.setColor(Color.WHITE);
             graphics2D.drawString("Tick: " + world.getTick(), 25, 38);
@@ -208,6 +238,9 @@ public class SimPanel extends JPanel {
             graphics2D.drawString("Speed: " + getSpeedLabel(), 115, 78);
             graphics2D.setColor(Color.LIGHT_GRAY);
             graphics2D.drawString("+/- speed", 115, 98);
+            graphics2D.setColor(Color.WHITE);
+            graphics2D.drawString("Kills: " + battle.getTotalKills(), 25, 118);
+            graphics2D.drawString("Best: " + battle.getBestKills(), 115, 118);
 
         } finally {
             graphics2D.dispose();

@@ -1,8 +1,10 @@
-import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.ImageObserver;
+import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import javax.imageio.ImageIO;
+import javax.swing.ImageIcon;
 
 public class Building extends Entity {
     private final Image image;
@@ -29,11 +31,18 @@ public class Building extends Entity {
                 Image loadedImage;
                 try {
                     URL imageURL = Building.class.getResource("/Building.png");
-                    if (imageURL == null) {
-                        throw new IOException("Building.png could not be found");
+                    if (imageURL != null) {
+                        loadedImage = ImageIO.read(imageURL);
+                    } else {
+                        File sourceAsset = new File("src", "Building.png");
+                        if (!sourceAsset.isFile()) {
+                            sourceAsset = new File("COMP2000/src", "Building.png");
+                        }
+                        if (!sourceAsset.isFile()) {
+                            throw new IOException("Building.png could not be found");
+                        }
+                        loadedImage = new ImageIcon(sourceAsset.getAbsolutePath()).getImage();
                     }
-
-                    loadedImage = ImageIO.read(imageURL);
                     if (loadedImage == null) {
                         throw new IOException("Building.png is corrupted or unsupported");
                     }

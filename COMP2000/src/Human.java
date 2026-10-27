@@ -22,6 +22,7 @@ public class Human extends Entity {
     private static final int CHARACTER_WIDTH = 38;
     private static final int CHARACTER_HEIGHT = 54;
     private static final int TICKS_PER_WALK_FRAME = 8;
+    private static final String DEFAULT_SPRITE_FOLDER = "/HumanFoodAssets/";
 
     private final Random random = new Random();
     private double energy;
@@ -42,22 +43,32 @@ public class Human extends Entity {
     private Building shelter;
 
     public Human(double x, double y) {
+        this(x, y, DEFAULT_SPRITE_FOLDER);
+    }
+
+    /**
+     * Creates a human drawn with the sprites in {@code spriteFolder}, which
+     * must hold the same set of files as {@code HumanFoodAssets}. This lets a
+     * subclass such as {@link Medic} have its own look while reusing all of
+     * the walking animation code.
+     */
+    protected Human(double x, double y, String spriteFolder) {
         super(x, y);
         energy = MAX_ENERGY;
         frontWalkFrames = new Image[]{
-                loadImage("/HumanFrontWalk1.png"),
-                loadImage("/HumanFrontWalk2.png"),
-                loadImage("/HumanFrontWalk3.png"),
-                loadImage("/HumanFrontWalk4.png")
+                loadImage(spriteFolder + "HumanFrontWalk1.png"),
+                loadImage(spriteFolder + "HumanFrontWalk2.png"),
+                loadImage(spriteFolder + "HumanFrontWalk3.png"),
+                loadImage(spriteFolder + "HumanFrontWalk4.png")
         };
         sideWalkFrames = new Image[]{
-                loadImage("/HumanWalk1.png"),
-                loadImage("/HumanWalk2.png"),
-                loadImage("/HumanWalk3.png")
+                loadImage(spriteFolder + "HumanWalk1.png"),
+                loadImage(spriteFolder + "HumanWalk2.png"),
+                loadImage(spriteFolder + "HumanWalk3.png")
         };
-        frontIdleFrame = loadImage("/HumanFrontIdle.png");
-        sideIdleFrame = loadImage("/HumanSideIdle.png");
-        backFrame = loadImage("/HumanBack.png");
+        frontIdleFrame = loadImage(spriteFolder + "HumanFrontIdle.png");
+        sideIdleFrame = loadImage(spriteFolder + "HumanSideIdle.png");
+        backFrame = loadImage(spriteFolder + "HumanBack.png");
         walkFrame = 0;
         chooseNewWanderDirection();
     }
@@ -118,6 +129,12 @@ public class Human extends Entity {
         deactivate();
     }
 
+    /**
+     * Runs one tick of this human's life. The order is fixed: energy drains
+     * first (and a starving human dies), then {@link #behave(World)} decides
+     * what to do. Subclasses such as {@link Medic} customise only the
+     * behaviour step, so every kind of human gets hungry in the same way.
+     */
     @Override
     public void update(World world) {
         energy -= ENERGY_LOSS_PER_TICK;
@@ -127,6 +144,14 @@ public class Human extends Entity {
             return;
         }
 
+        behave(world);
+    }
+
+    /**
+     * Ordinary survival behaviour for one tick: shelter while healthy, then
+     * leave shelter to look for food once hungry, wandering if none is near.
+     */
+    protected void behave(World world) {
         // Sheltering protects the human, but food scarcity eventually forces
         // them back into the world where normal food-seeking can resume.
         if (hidden) {
@@ -150,16 +175,32 @@ public class Human extends Entity {
             }
         }
 
-        Food food = findNearestFood(world);
-        if (food == null) {
+        try {
+            Food food = findNearestFood(world);
+            moveTowards(food.getX(), food.getY(), world);
+            if (distanceTo(food) <= Food.EAT_DISTANCE) {
+                eat(food);
+            }
+        } catch (TargetNotFoundException exception) {
             wander(world);
-            return;
+        }
+    }
+
+    /**
+     * Restores energy from an outside source such as a medic, without going
+     * above the maximum.
+     *
+     * @param amount how much energy to restore
+     * @throws IllegalArgumentException if {@code amount} is not positive
+     */
+    public void restoreEnergy(double amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException(
+                    "Restored energy must be positive"
+            );
         }
 
-        moveTowards(food.getX(), food.getY(), world);
-        if (distanceTo(food) <= Food.EAT_DISTANCE) {
-            eat(food);
-        }
+        energy = Math.min(MAX_ENERGY, energy + amount);
     }
 
     /** Consumes an active food item when close enough to it. */
@@ -173,12 +214,21 @@ public class Human extends Entity {
         return true;
     }
 
-    private Food findNearestFood(World world) {
-        return world.getNearby(this, FOOD_SEARCH_RADIUS).stream()
-                .filter(entity -> entity instanceof Food)
-                .map(entity -> (Food) entity)
+    private Food findNearestFood(World world) throws TargetNotFoundException {
+        return findNearestEntity(world, FOOD_SEARCH_RADIUS, Food.class);
+    }
+
+    private <T extends Entity> T findNearestEntity(World world,
+                                                   double radius,
+                                                   Class<T> entityType)
+            throws TargetNotFoundException {
+        return world.getNearby(this, radius).stream()
+                .filter(entityType::isInstance)
+                .map(entityType::cast)
                 .min(Comparator.comparingDouble(this::distanceTo))
-                .orElse(null);
+                .orElseThrow(() -> new TargetNotFoundException(
+                        "No nearby " + entityType.getSimpleName() + " target found"
+                ));
     }
 
     private Building findNearestAvailableBuilding(World world) {
@@ -208,7 +258,7 @@ public class Human extends Entity {
         wanderTicksRemaining = 20 + random.nextInt(50);
     }
 
-    private void moveTowards(double targetX, double targetY, World world) {
+    protected void moveTowards(double targetX, double targetY, World world) {
         double xDifference = targetX - getX();
         double yDifference = targetY - getY();
         double distance = Math.hypot(xDifference, yDifference);
