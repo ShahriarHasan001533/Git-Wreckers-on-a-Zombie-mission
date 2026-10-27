@@ -242,6 +242,8 @@ public class SimPanel extends JPanel implements WorldObserver {
                                 + "/"
                                 + building.getCapacity();
 
+                occupancyText = building.getAdmissionDescription() + " | " + occupancyText;
+
                 int textX = (int) building.getX();
                 int textY = (int) building.getY() - 10;
 
