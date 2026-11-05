@@ -29,12 +29,16 @@ The zombie had two hidden modes (wandering and chasing) inside one `update()`. I
 - Infected humans now rise as new zombies (capped at 12, counted with a stream), so the population can grow.
 - I raised the base chase speed to 2.4, because humans move at 2.0 and a slower zombie could never catch one.
 
+**6. Reacting to the rest of the team's classes (added after reading their code).**
+- *Siege:* `occupiedBuildingNearby` streams over the world's `Building` objects and picks the one with the most people hiding inside (using `Building.getOccupantCount()` and its entrance position). A zombie with nobody in view walks to that entrance and waits, so humans who have to leave when they get hungry walk out into it.
+- *Wary of soldiers:* `nearestSoldier` finds the closest `Military` unit. A wandering zombie backs away from one, and a chasing zombie breaks off if a soldier is within 190 units, unless the human is within 40 units (it commits to the kill). I did this because `Military` kills any zombie inside 140 units within a tick or two, and a zombie that chases a human straight into a soldier never gets to spread.
+
 ## Testing
 `ZombieStreamTest` has six checks: what a zombie can see, picking the closest target, throwing `TargetNotFoundException`, the prey score value, the parallel total matching the sequential one, and a human turning into a zombie. I confirmed a test can fail by changing one expected value in a scratch copy. I also ran `Main` under a virtual display for several seconds with no errors, and simulated its starting world for thousands of ticks.
 
 ## Trade-offs and what I learned
 - **Game balance:** the frenzy, lunge and faster chase make zombies much deadlier in groups. That is more interesting, but I tuned it by feel and measurement, not against a target.
-- **Spread is rare in the default game.** With `Main` unchanged there is one starting zombie, and the soldiers shoot it before it reaches anyone (0 of 8 test runs showed any spread). In an earlier test, two extra starting zombies at chase speed 2.4 gave spread in 8 of 8 runs, though that was before I added the lunge. I did not change `Main`, because it is a teammate's file. I wrote the suggested two lines in my notes for the team.
+- **Spread is rare in the default game.** With `Main` unchanged there is one starting zombie, and it still dies at about tick 45 on average (0 of 8 test runs showed any spread), because its first target is next to a soldier and breaking off comes too late. With two extra starting zombies the spread happened in 8 of 8 runs, and the average peak number of zombies rose from 4.0 to 5.1 once I added the siege and soldier avoidance, and to 6.5 with the break-off. I did not change `Main`, because it is a teammate's file. Khoi's unmerged `feature/configurable-population-settings` branch adds a `SimulationSettings` class with a zombie count, so the extra zombies could come from that setting instead.
 - **Streams made the rules easier to read, but not always shorter,** and a lazy stream shared between methods needs care: each caller must finish it with exactly one terminal operation.
 
 ## What could be improved
