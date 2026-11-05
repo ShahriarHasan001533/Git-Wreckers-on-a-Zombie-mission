@@ -8,6 +8,7 @@ import java.net.URL;
 import java.util.Comparator;
 import java.util.DoubleSummaryStatistics;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.function.BiConsumer;
 import java.util.stream.Collector;
@@ -34,6 +35,8 @@ public class Zombie extends Entity {
     private static final double DETECTION_RADIUS = 300.0;
     private static final double INFECT_DISTANCE = 12.0;
     private static final int MAX_ZOMBIES = 12;
+    private static final double HEARING_RADIUS = 350.0;
+    private static final double STAKEOUT_DISTANCE = 30.0;
     private static final int WIDTH = 38;
     private static final int HEIGHT = 54;
     private static final int FRAME_TICKS = 8;
@@ -183,6 +186,46 @@ public class Zombie extends Entity {
                 .getOrDefault("CLOSE", 0L) > 0 ? 0.25 : 0.0;
 
         return 1.0 + Math.min(0.5, preyScore(world) * 0.2) + lunge;
+    }
+
+    /**
+     * The busiest building within hearing range that has someone sheltering
+     * inside, found by streaming over every entity in the world.
+     */
+    Optional<Building> occupiedBuildingNearby(World world) {
+        return world.getEntities().stream()
+                .filter(entity -> entity instanceof Building)
+                .map(entity -> (Building) entity)
+                .filter(building -> building.getOccupantCount() > 0)
+                .filter(building -> Math.hypot(
+                        building.getEntranceX() - getX(),
+                        building.getEntranceY() - getY()) <= HEARING_RADIUS)
+                .max(Comparator.comparingInt(Building::getOccupantCount));
+    }
+
+    /** With nobody in view, gather outside a building people are hiding in. */
+    private void wanderOrStalk(World world) {
+        occupiedBuildingNearby(world).ifPresentOrElse(
+                building -> stalk(building, world),
+                () -> wander(world));
+    }
+
+    private void stalk(Building building, World world) {
+        double xDifference = building.getEntranceX() - getX();
+        double yDifference = building.getEntranceY() - getY();
+        double distance = Math.hypot(xDifference, yDifference);
+
+        if (distance <= STAKEOUT_DISTANCE) {
+            move(0, 0, 0, world);
+            return;
+        }
+
+        move(
+                xDifference / distance,
+                yDifference / distance,
+                WANDER_SPEED * 2,
+                world
+        );
     }
 
     /** An infected human rises as a new zombie where they fell. */
@@ -422,7 +465,7 @@ public class Zombie extends Entity {
             try {
                 zombie.startChase(zombie.findTarget(world), world);
             } catch (TargetNotFoundException exception) {
-                zombie.wander(world);
+                zombie.wanderOrStalk(world);
             }
         }),
         CHASING((zombie, world) -> {
