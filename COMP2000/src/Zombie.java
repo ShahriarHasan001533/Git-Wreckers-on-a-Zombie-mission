@@ -37,6 +37,9 @@ public class Zombie extends Entity {
     private static final int MAX_ZOMBIES = 12;
     private static final double HEARING_RADIUS = 350.0;
     private static final double STAKEOUT_DISTANCE = 30.0;
+    private static final double WARY_RADIUS = 300.0;
+    private static final double BREAK_OFF_DISTANCE = 190.0;
+    private static final double BREAK_OFF_EXCEPTION = 40.0;
     private static final int WIDTH = 38;
     private static final int HEIGHT = 54;
     private static final int FRAME_TICKS = 8;
@@ -201,6 +204,47 @@ public class Zombie extends Entity {
                         building.getEntranceX() - getX(),
                         building.getEntranceY() - getY()) <= HEARING_RADIUS)
                 .max(Comparator.comparingInt(Building::getOccupantCount));
+    }
+
+    /** The closest soldier inside the wary radius, which is wider than a soldier's reach. */
+    Optional<Military> nearestSoldier(World world) {
+        return world.getNearby(this, WARY_RADIUS).stream()
+                .filter(entity -> entity instanceof Military)
+                .map(entity -> (Military) entity)
+                .min(Comparator.comparingDouble(this::distanceTo));
+    }
+
+    /**
+     * True when a soldier is inside firing range plus a margin and the target
+     * is not about to be caught, so the zombie breaks off the chase.
+     */
+    private boolean soldierTooClose(Human chased, World world) {
+        return distanceTo(chased) > BREAK_OFF_EXCEPTION
+                && nearestSoldier(world)
+                        .filter(soldier -> distanceTo(soldier) < BREAK_OFF_DISTANCE)
+                        .isPresent();
+    }
+
+    /** Backs away from a nearby soldier. Returns false when none is close. */
+    private boolean retreatFromSoldier(World world) {
+        Optional<Military> soldier = nearestSoldier(world);
+
+        soldier.ifPresent(threat -> {
+            double xDifference = getX() - threat.getX();
+            double yDifference = getY() - threat.getY();
+            double distance = Math.hypot(xDifference, yDifference);
+
+            if (distance > 0) {
+                move(
+                        xDifference / distance,
+                        yDifference / distance,
+                        CHASE_SPEED,
+                        world
+                );
+            }
+        });
+
+        return soldier.isPresent();
     }
 
     /** With nobody in view, gather outside a building people are hiding in. */
@@ -465,14 +509,17 @@ public class Zombie extends Entity {
             try {
                 zombie.startChase(zombie.findTarget(world), world);
             } catch (TargetNotFoundException exception) {
-                zombie.wanderOrStalk(world);
+                if (!zombie.retreatFromSoldier(world)) {
+                    zombie.wanderOrStalk(world);
+                }
             }
         }),
         CHASING((zombie, world) -> {
             Human target = zombie.target;
 
             if (!target.isActive() || target.isHidden()
-                    || zombie.distanceTo(target) > DETECTION_RADIUS) {
+                    || zombie.distanceTo(target) > DETECTION_RADIUS
+                    || zombie.soldierTooClose(target, world)) {
                 zombie.stopChase();
                 zombie.wander(world);
                 return;
