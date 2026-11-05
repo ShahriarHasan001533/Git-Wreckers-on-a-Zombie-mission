@@ -13,7 +13,48 @@ public final class ZombieStreamTest {
         testPreyScoreRewardsCloserCivilians();
         testTotalPreyScoreMatchesSequentialSum();
         testInfectedHumanBecomesZombie();
+        testZombieGathersOutsideOccupiedBuilding();
+        testNearestSoldierIgnoresCiviliansAndFarSoldiers();
         System.out.println("ZombieStreamTest passed");
+    }
+
+    private static void testZombieGathersOutsideOccupiedBuilding() {
+        World world = new World(1000, 750);
+        Building building = new Building(500, 300, 150, 100);
+        Human sheltering = new Human(560, 380);
+        Zombie zombie = new Zombie(300, 500);
+        world.addEntity(building);
+        world.addEntity(sheltering);
+        world.addEntity(zombie);
+        sheltering.enterBuilding(building);
+
+        assert zombie.occupiedBuildingNearby(world).isPresent();
+
+        for (int tick = 0; tick < 400; tick++) {
+            zombie.update(world);
+        }
+
+        double distance = Math.hypot(
+                building.getEntranceX() - zombie.getX(),
+                building.getEntranceY() - zombie.getY());
+        assert distance < 40;
+    }
+
+    private static void testNearestSoldierIgnoresCiviliansAndFarSoldiers() {
+        World world = new World(1000, 750);
+        Zombie zombie = new Zombie(400, 400);
+        Military close = new Military(500, 400);
+        world.addEntity(zombie);
+        world.addEntity(new Human(410, 400));
+        world.addEntity(new Military(650, 400));
+        world.addEntity(close);
+        assert zombie.nearestSoldier(world).get() == close;
+
+        World faraway = new World(1000, 750);
+        Zombie alone = new Zombie(100, 100);
+        faraway.addEntity(alone);
+        faraway.addEntity(new Military(900, 700));
+        assert alone.nearestSoldier(faraway).isEmpty();
     }
 
     private static void testVisibleCiviliansSkipsSoldiersHiddenAndFarHumans() {
