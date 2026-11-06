@@ -5,17 +5,46 @@ import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
-import java.util.List;
+import java.util.Comparator;
+import java.util.DoubleSummaryStatistics;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
+import java.util.function.BiConsumer;
+import java.util.stream.Collector;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 
-/** A zombie that wanders, chases visible civilians, and infects on contact. */
+/**
+ * A zombie that wanders, chases visible civilians, and infects on contact.
+ * Uses the State design pattern with four modes (WANDERING, CHASING,
+ * STALKING, RETREATING). Each mode is a lambda held by the {@link Mode} enum,
+ * and {@link #decideMode} is the single place where the mode changes.
+ *
+ * <p>Why State: the zombie's behaviour changes at runtime based on what it
+ * senses. Alternatives considered: an if/else on a flag (the original code;
+ * grows messy with each new mode), an enum with a switch (still one big
+ * method), and Strategy as used by Military (fits swapping an algorithm, but
+ * a strategy does not model the mode the zombie is currently in). Separate
+ * State classes were tried first, then replaced with lambdas because each
+ * mode is only a few lines.
+ */
 public class Zombie extends Entity {
 
-    private static final double CHASE_SPEED = 1.4;
+    private static final double CHASE_SPEED = 2.4;
     private static final double WANDER_SPEED = 0.6;
     private static final double DETECTION_RADIUS = 300.0;
     private static final double INFECT_DISTANCE = 12.0;
+    private static final int MAX_ZOMBIES = 12;
+    private static final double HEARING_RADIUS = 350.0;
+    private static final double STAKEOUT_DISTANCE = 30.0;
+    private static final double WARY_RADIUS = 300.0;
+    private static final double BREAK_OFF_DISTANCE = 190.0;
+    private static final double BREAK_OFF_EXCEPTION = 40.0;
+    private static final int STARVE_TICKS = 2500;
+    private static final double ALERT_RADIUS = 200.0;
+    private static final double PURSUIT_LIMIT = 450.0;
     private static final int WIDTH = 38;
     private static final int HEIGHT = 54;
     private static final int FRAME_TICKS = 8;
@@ -36,6 +65,8 @@ public class Zombie extends Entity {
     private boolean moving;
     private boolean facingLeft;
     private Facing facing = Facing.FRONT;
+    private Mode mode = Mode.WANDERING;
+    private int ticksSinceFeeding;
 
     public Zombie(double x, double y) {
         super(x, y);
@@ -76,45 +107,296 @@ public class Zombie extends Entity {
 
     @Override
     public void update(World world) {
-        target = findTarget(world);
+        ticksSinceFeeding++;
 
-        if (target == null) {
-            wander(world);
+        if (ticksSinceFeeding > STARVE_TICKS) {
+            deactivate();
             return;
         }
 
+        mode = decideMode(world);
+        mode.behaviour.accept(this, world);
+    }
+
+    /**
+     * Civilians this zombie can currently see: active, not soldiers, not
+     * sheltering. Returned as a lazy stream so callers choose the terminal
+     * operation (min for targeting, count for threat level, and so on).
+     */
+    Stream<Human> visibleCivilians(World world) {
+        return world.getNearby(this, DETECTION_RADIUS).stream()
+                .filter(entity -> entity instanceof Human
+                        && !(entity instanceof Military))
+                .map(entity -> (Human) entity)
+                .filter(human -> !human.isHidden());
+    }
+
+    /**
+     * Most appealing visible civilian, or TargetNotFoundException if none is
+     * in view. Appeal is distance scaled by energy, so with equal energy the
+     * closest wins, but a weak human can beat a slightly closer healthy one.
+     */
+    Human findTarget(World world) throws TargetNotFoundException {
+        return visibleCivilians(world)
+                .min(Comparator.comparingDouble(this::appeal))
+                .orElseThrow(() -> new TargetNotFoundException(
+                        "No visible civilian in range"));
+    }
+
+    /** Lower is more appealing: full energy counts as the real distance, empty as half. */
+    private double appeal(Human human) {
+        return distanceTo(human) * (0.5 + human.getEnergy() / 200.0);
+    }
+
+    /** Number of civilians currently in view, counted with a stream. */
+    long countVisibleCivilians(World world) {
+        return visibleCivilians(world).count();
+    }
+
+    /** Visible civilians grouped into CLOSE, MEDIUM and FAR distance bands. */
+    Map<String, Long> civiliansByDistanceBand(World world) {
+        return visibleCivilians(world).collect(Collectors.groupingBy(
+                human -> {
+                    double distance = distanceTo(human);
+                    if (distance < DETECTION_RADIUS / 3) {
+                        return "CLOSE";
+                    }
+                    return distance < DETECTION_RADIUS * 2 / 3
+                            ? "MEDIUM" : "FAR";
+                },
+                Collectors.counting()));
+    }
+
+    /** Min, max and average energy of the civilians this zombie can see. */
+    DoubleSummaryStatistics visibleCivilianEnergy(World world) {
+        return visibleCivilians(world)
+                .collect(Collectors.summarizingDouble(Human::getEnergy));
+    }
+
+    /**
+     * Prey score from a custom collector: each visible civilian adds up to
+     * 1.0, more the closer they are, so a crowd nearby scores higher.
+     */
+    double preyScore(World world) {
+        return visibleCivilians(world).collect(Collector.of(
+                () -> new double[1],
+                (total, human) -> total[0] +=
+                        1.0 - distanceTo(human) / DETECTION_RADIUS,
+                (left, right) -> {
+                    left[0] += right[0];
+                    return left;
+                },
+                total -> total[0]));
+    }
+
+    /**
+     * Total prey score across every zombie, computed with a parallel stream.
+     * Thread-safe because each task only reads the world and its own zombie,
+     * the lambdas hold no shared mutable state, and the results are combined
+     * by DoubleStream.sum(). Call it between ticks, not during world.update().
+     */
+    static double totalPreyScore(World world) {
+        return world.getEntities().parallelStream()
+                .filter(entity -> entity instanceof Zombie)
+                .map(entity -> (Zombie) entity)
+                .mapToDouble(zombie -> zombie.preyScore(world))
+                .sum();
+    }
+
+    /**
+     * Speed boost from 1.0 up to 1.5 as more civilians crowd into view, plus
+     * a 0.25 lunge when anyone is in the CLOSE distance band.
+     */
+    double frenzyMultiplier(World world) {
+        double lunge = civiliansByDistanceBand(world)
+                .getOrDefault("CLOSE", 0L) > 0 ? 0.25 : 0.0;
+
+        return 1.0 + Math.min(0.5, preyScore(world) * 0.2) + lunge;
+    }
+
+    /**
+     * The busiest building within hearing range that has someone sheltering
+     * inside, found by streaming over every entity in the world.
+     */
+    Optional<Building> occupiedBuildingNearby(World world) {
+        return world.getEntities().stream()
+                .filter(entity -> entity instanceof Building)
+                .map(entity -> (Building) entity)
+                .filter(building -> building.getOccupantCount() > 0)
+                .filter(building -> Math.hypot(
+                        building.getEntranceX() - getX(),
+                        building.getEntranceY() - getY()) <= HEARING_RADIUS)
+                .max(Comparator.comparingInt(Building::getOccupantCount));
+    }
+
+    /** The closest soldier inside the wary radius, which is wider than a soldier's reach. */
+    Optional<Military> nearestSoldier(World world) {
+        return world.getNearby(this, WARY_RADIUS).stream()
+                .filter(entity -> entity instanceof Military)
+                .map(entity -> (Military) entity)
+                .min(Comparator.comparingDouble(this::distanceTo));
+    }
+
+    /**
+     * True when a soldier is inside firing range plus a margin and the target
+     * is not about to be caught, so the zombie breaks off the chase.
+     */
+    private boolean soldierTooClose(Human chased, World world) {
+        return distanceTo(chased) > BREAK_OFF_EXCEPTION
+                && nearestSoldier(world)
+                        .filter(soldier -> distanceTo(soldier) < BREAK_OFF_DISTANCE)
+                        .isPresent();
+    }
+
+    /**
+     * Backs away from the given soldier. Against a wall it slides along the
+     * wall instead of pushing into it, and in a corner it heads for the
+     * middle of the map, so a retreating zombie is not simply pinned.
+     */
+    private void retreat(Military threat, World world) {
+        double xDifference = getX() - threat.getX();
+        double yDifference = getY() - threat.getY();
+        double distance = Math.hypot(xDifference, yDifference);
+
+        if (distance == 0) {
+            return;
+        }
+
+        double xDirection = xDifference / distance;
+        double yDirection = yDifference / distance;
+
+        boolean atSideWall = (getX() <= WIDTH && xDirection < 0)
+                || (getX() >= world.getWidth() - WIDTH && xDirection > 0);
+        boolean atEndWall = (getY() <= HEIGHT && yDirection < 0)
+                || (getY() >= world.getHeight() - HEIGHT && yDirection > 0);
+
+        double towardMiddleX = Math.signum(world.getWidth() / 2.0 - getX());
+        double towardMiddleY = Math.signum(world.getHeight() / 2.0 - getY());
+
+        if (atSideWall && atEndWall) {
+            xDirection = towardMiddleX;
+            yDirection = towardMiddleY;
+        } else if (atSideWall) {
+            xDirection = 0;
+            yDirection = Math.signum(yDirection) != 0
+                    ? Math.signum(yDirection) : towardMiddleY;
+        } else if (atEndWall) {
+            yDirection = 0;
+            xDirection = Math.signum(xDirection) != 0
+                    ? Math.signum(xDirection) : towardMiddleX;
+        }
+
+        double length = Math.hypot(xDirection, yDirection);
+
+        if (length > 0) {
+            move(xDirection / length, yDirection / length, CHASE_SPEED, world);
+        }
+    }
+
+    /**
+     * Picks this tick's mode. Every transition is in this one method so the
+     * priority order is easy to read: keep chasing, then new prey, then back
+     * away from soldiers, then gather at a building people are hiding in,
+     * otherwise wander.
+     */
+    private Mode decideMode(World world) {
+        if (mode == Mode.CHASING && target != null
+                && worthChasing(target, world)) {
+            return Mode.CHASING;
+        }
+
+        target = null;
+
+        Optional<Human> prey = preyInView(world)
+                .filter(human -> !soldierTooClose(human, world));
+
+        if (prey.isPresent()) {
+            target = prey.get();
+            return Mode.CHASING;
+        }
+
+        if (nearestSoldier(world).isPresent()) {
+            return Mode.RETREATING;
+        }
+
+        if (occupiedBuildingNearby(world).isPresent()) {
+            return Mode.STALKING;
+        }
+
+        return Mode.WANDERING;
+    }
+
+    private boolean worthChasing(Human chased, World world) {
+        return chased.isActive()
+                && !chased.isHidden()
+                && distanceTo(chased) <= PURSUIT_LIMIT
+                && !soldierTooClose(chased, world);
+    }
+
+    private Optional<Human> preyInView(World world) {
+        try {
+            return Optional.of(findTarget(world));
+        } catch (TargetNotFoundException exception) {
+            return alertedTarget(world);
+        }
+    }
+
+    /**
+     * Horde alert: when nobody is in this zombie's own view, it joins the
+     * hunt of a nearby zombie that is already chasing, even if the human is
+     * beyond its own detection range. Closest such human wins.
+     */
+    Optional<Human> alertedTarget(World world) {
+        return world.getNearby(this, ALERT_RADIUS).stream()
+                .filter(entity -> entity instanceof Zombie)
+                .map(entity -> (Zombie) entity)
+                .filter(zombie -> zombie.mode == Mode.CHASING)
+                .map(zombie -> zombie.target)
+                .filter(human -> human != null
+                        && human.isActive()
+                        && !human.isHidden()
+                        && distanceTo(human) <= PURSUIT_LIMIT)
+                .min(Comparator.comparingDouble(this::distanceTo));
+    }
+
+    private void stalk(Building building, World world) {
+        double xDifference = building.getEntranceX() - getX();
+        double yDifference = building.getEntranceY() - getY();
+        double distance = Math.hypot(xDifference, yDifference);
+
+        if (distance <= STAKEOUT_DISTANCE) {
+            move(0, 0, 0, world);
+            return;
+        }
+
+        move(
+                xDifference / distance,
+                yDifference / distance,
+                WANDER_SPEED * 2,
+                world
+        );
+    }
+
+    /** An infected human rises as a new zombie where they fell. */
+    private void spreadInfection(Human victim, World world) {
+        long zombieCount = world.getEntities().stream()
+                .filter(entity -> entity instanceof Zombie && entity.isActive())
+                .count();
+
+        if (zombieCount < MAX_ZOMBIES) {
+            world.addEntity(new Zombie(victim.getX(), victim.getY()));
+        }
+    }
+
+    private void chaseAndInfect(World world) {
         chase(world);
 
         if (distanceTo(target) <= INFECT_DISTANCE) {
             target.infect();
+            spreadInfection(target, world);
+            ticksSinceFeeding = 0;
+            target = null;
         }
-    }
-
-    /** Finds the closest active, visible civilian in range. */
-    private Human findTarget(World world) {
-        Human closest = null;
-        double closestDistance = DETECTION_RADIUS;
-
-        List<Entity> nearby =
-                world.getNearby(this, DETECTION_RADIUS);
-
-        for (Entity entity : nearby) {
-            if (!(entity instanceof Human)
-                    || entity instanceof Military) {
-                continue;
-            }
-
-            Human human = (Human) entity;
-            double distance = distanceTo(human);
-
-            if (!human.isHidden()
-                    && distance < closestDistance) {
-                closest = human;
-                closestDistance = distance;
-            }
-        }
-
-        return closest;
     }
 
     private void chase(World world) {
@@ -129,7 +411,7 @@ public class Zombie extends Entity {
             move(
                     xDifference / distance,
                     yDifference / distance,
-                    CHASE_SPEED,
+                    CHASE_SPEED * frenzyMultiplier(world),
                     world
             );
         }
@@ -324,6 +606,25 @@ public class Zombie extends Entity {
         graphics.dispose();
 
         return sheet;
+    }
+
+    /**
+     * The zombie's states. Each constant holds its behaviour as a lambda,
+     * which stands in for what would otherwise be four State subclasses.
+     */
+    private enum Mode {
+        WANDERING((zombie, world) -> zombie.wander(world)),
+        CHASING((zombie, world) -> zombie.chaseAndInfect(world)),
+        STALKING((zombie, world) -> zombie.occupiedBuildingNearby(world)
+                .ifPresent(building -> zombie.stalk(building, world))),
+        RETREATING((zombie, world) -> zombie.nearestSoldier(world)
+                .ifPresent(soldier -> zombie.retreat(soldier, world)));
+
+        private final BiConsumer<Zombie, World> behaviour;
+
+        Mode(BiConsumer<Zombie, World> behaviour) {
+            this.behaviour = behaviour;
+        }
     }
 
     private enum Facing {
