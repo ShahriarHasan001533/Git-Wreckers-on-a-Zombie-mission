@@ -15,7 +15,84 @@ public final class ZombieStreamTest {
         testInfectedHumanBecomesZombie();
         testZombieGathersOutsideOccupiedBuilding();
         testNearestSoldierIgnoresCiviliansAndFarSoldiers();
+        testZombieJoinsNeighboursHunt();
+        testWeakHumanIsPreferredOverCloserHealthyOne();
+        testZombieStarvesWithoutInfecting();
+        testRetreatingZombieSlidesAlongWall();
         System.out.println("ZombieStreamTest passed");
+    }
+
+    private static void testZombieJoinsNeighboursHunt() {
+        World world = new World(1000, 750);
+        Zombie hunter = new Zombie(300, 400);
+        Zombie follower = new Zombie(300, 560);
+        world.addEntity(hunter);
+        world.addEntity(follower);
+        world.addEntity(new Human(560, 380));
+
+        assert follower.visibleCivilians(world).count() == 0;
+        assert follower.alertedTarget(world).isEmpty();
+
+        hunter.update(world);
+
+        assert follower.alertedTarget(world).isPresent();
+    }
+
+    private static void testWeakHumanIsPreferredOverCloserHealthyOne()
+            throws AssertionError {
+        World world = new World(1000, 750);
+        Zombie zombie = new Zombie(400, 400);
+        Human healthy = new Human(470, 400);
+        Human weak = new Human(520, 400);
+        world.addEntity(zombie);
+        world.addEntity(healthy);
+        world.addEntity(weak);
+
+        try {
+            assert zombie.findTarget(world) == healthy;
+
+            World empty = new World(1000, 750);
+            for (int tick = 0; tick < 450; tick++) {
+                weak.update(empty);
+            }
+            weak.setPosition(520, 400);
+
+            assert weak.getEnergy() < 20;
+            assert zombie.findTarget(world) == weak;
+        } catch (TargetNotFoundException exception) {
+            throw new AssertionError("a target was in view", exception);
+        }
+    }
+
+    private static void testZombieStarvesWithoutInfecting() {
+        World world = new World(1000, 750);
+        Zombie zombie = new Zombie(500, 375);
+        world.addEntity(zombie);
+
+        for (int tick = 0; tick < 2400; tick++) {
+            zombie.update(world);
+        }
+        assert zombie.isActive();
+
+        for (int tick = 0; tick < 200; tick++) {
+            zombie.update(world);
+        }
+        assert !zombie.isActive();
+    }
+
+    private static void testRetreatingZombieSlidesAlongWall() {
+        World world = new World(1000, 750);
+        Zombie zombie = new Zombie(20, 400);
+        world.addEntity(zombie);
+        world.addEntity(new Military(160, 400));
+
+        double startY = zombie.getY();
+        for (int tick = 0; tick < 30; tick++) {
+            zombie.update(world);
+        }
+
+        assert zombie.getX() >= 19;
+        assert Math.abs(zombie.getY() - startY) > 20;
     }
 
     private static void testZombieGathersOutsideOccupiedBuilding() {
