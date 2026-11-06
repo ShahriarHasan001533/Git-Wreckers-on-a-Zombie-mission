@@ -18,15 +18,17 @@ import javax.imageio.ImageIO;
 
 /**
  * A zombie that wanders, chases visible civilians, and infects on contact.
- * Uses the State design pattern: behaviour is delegated to the current
- * {@link Mode}, whose lambda behaviour handles transitions between modes.
+ * Uses the State design pattern with four modes (WANDERING, CHASING,
+ * STALKING, RETREATING). Each mode is a lambda held by the {@link Mode} enum,
+ * and {@link #decideMode} is the single place where the mode changes.
  *
  * <p>Why State: the zombie's behaviour changes at runtime based on what it
- * sees, and each mode decides its own next mode. Alternatives considered:
- * an if/else on a flag (the original code; grows messy with each new mode),
- * an enum with a switch (still one big method), and Strategy as used by
- * Military (fits swapping an algorithm, but the strategy does not decide
- * when to switch, which is the core need here).
+ * senses. Alternatives considered: an if/else on a flag (the original code;
+ * grows messy with each new mode), an enum with a switch (still one big
+ * method), and Strategy as used by Military (fits swapping an algorithm, but
+ * a strategy does not model the mode the zombie is currently in). Separate
+ * State classes were tried first, then replaced with lambdas because each
+ * mode is only a few lines.
  */
 public class Zombie extends Entity {
 
@@ -101,6 +103,7 @@ public class Zombie extends Entity {
 
     @Override
     public void update(World world) {
+        mode = decideMode(world);
         mode.behaviour.accept(this, world);
     }
 
@@ -225,33 +228,68 @@ public class Zombie extends Entity {
                         .isPresent();
     }
 
-    /** Backs away from a nearby soldier. Returns false when none is close. */
-    private boolean retreatFromSoldier(World world) {
-        Optional<Military> soldier = nearestSoldier(world);
+    /** Backs away from the given soldier, directly away from where it stands. */
+    private void retreat(Military threat, World world) {
+        double xDifference = getX() - threat.getX();
+        double yDifference = getY() - threat.getY();
+        double distance = Math.hypot(xDifference, yDifference);
 
-        soldier.ifPresent(threat -> {
-            double xDifference = getX() - threat.getX();
-            double yDifference = getY() - threat.getY();
-            double distance = Math.hypot(xDifference, yDifference);
-
-            if (distance > 0) {
-                move(
-                        xDifference / distance,
-                        yDifference / distance,
-                        CHASE_SPEED,
-                        world
-                );
-            }
-        });
-
-        return soldier.isPresent();
+        if (distance > 0) {
+            move(
+                    xDifference / distance,
+                    yDifference / distance,
+                    CHASE_SPEED,
+                    world
+            );
+        }
     }
 
-    /** With nobody in view, gather outside a building people are hiding in. */
-    private void wanderOrStalk(World world) {
-        occupiedBuildingNearby(world).ifPresentOrElse(
-                building -> stalk(building, world),
-                () -> wander(world));
+    /**
+     * Picks this tick's mode. Every transition is in this one method so the
+     * priority order is easy to read: keep chasing, then new prey, then back
+     * away from soldiers, then gather at a building people are hiding in,
+     * otherwise wander.
+     */
+    private Mode decideMode(World world) {
+        if (mode == Mode.CHASING && target != null
+                && worthChasing(target, world)) {
+            return Mode.CHASING;
+        }
+
+        target = null;
+
+        Optional<Human> prey = preyInView(world)
+                .filter(human -> !soldierTooClose(human, world));
+
+        if (prey.isPresent()) {
+            target = prey.get();
+            return Mode.CHASING;
+        }
+
+        if (nearestSoldier(world).isPresent()) {
+            return Mode.RETREATING;
+        }
+
+        if (occupiedBuildingNearby(world).isPresent()) {
+            return Mode.STALKING;
+        }
+
+        return Mode.WANDERING;
+    }
+
+    private boolean worthChasing(Human chased, World world) {
+        return chased.isActive()
+                && !chased.isHidden()
+                && distanceTo(chased) <= DETECTION_RADIUS
+                && !soldierTooClose(chased, world);
+    }
+
+    private Optional<Human> preyInView(World world) {
+        try {
+            return Optional.of(findTarget(world));
+        } catch (TargetNotFoundException exception) {
+            return Optional.empty();
+        }
     }
 
     private void stalk(Building building, World world) {
@@ -283,15 +321,14 @@ public class Zombie extends Entity {
         }
     }
 
-    private void startChase(Human newTarget, World world) {
-        target = newTarget;
-        mode = Mode.CHASING;
-        mode.behaviour.accept(this, world);
-    }
+    private void chaseAndInfect(World world) {
+        chase(world);
 
-    private void stopChase() {
-        target = null;
-        mode = Mode.WANDERING;
+        if (distanceTo(target) <= INFECT_DISTANCE) {
+            target.infect();
+            spreadInfection(target, world);
+            target = null;
+        }
     }
 
     private void chase(World world) {
@@ -503,36 +540,17 @@ public class Zombie extends Entity {
         return sheet;
     }
 
-    /** Zombie states; each lambda replaces what would be a State subclass. */
+    /**
+     * The zombie's states. Each constant holds its behaviour as a lambda,
+     * which stands in for what would otherwise be four State subclasses.
+     */
     private enum Mode {
-        WANDERING((zombie, world) -> {
-            try {
-                zombie.startChase(zombie.findTarget(world), world);
-            } catch (TargetNotFoundException exception) {
-                if (!zombie.retreatFromSoldier(world)) {
-                    zombie.wanderOrStalk(world);
-                }
-            }
-        }),
-        CHASING((zombie, world) -> {
-            Human target = zombie.target;
-
-            if (!target.isActive() || target.isHidden()
-                    || zombie.distanceTo(target) > DETECTION_RADIUS
-                    || zombie.soldierTooClose(target, world)) {
-                zombie.stopChase();
-                zombie.wander(world);
-                return;
-            }
-
-            zombie.chase(world);
-
-            if (zombie.distanceTo(target) <= INFECT_DISTANCE) {
-                target.infect();
-                zombie.spreadInfection(target, world);
-                zombie.stopChase();
-            }
-        });
+        WANDERING((zombie, world) -> zombie.wander(world)),
+        CHASING((zombie, world) -> zombie.chaseAndInfect(world)),
+        STALKING((zombie, world) -> zombie.occupiedBuildingNearby(world)
+                .ifPresent(building -> zombie.stalk(building, world))),
+        RETREATING((zombie, world) -> zombie.nearestSoldier(world)
+                .ifPresent(soldier -> zombie.retreat(soldier, world)));
 
         private final BiConsumer<Zombie, World> behaviour;
 
