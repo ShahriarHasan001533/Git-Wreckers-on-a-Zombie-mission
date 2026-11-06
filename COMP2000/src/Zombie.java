@@ -122,12 +122,21 @@ public class Zombie extends Entity {
                 .filter(human -> !human.isHidden());
     }
 
-    /** Closest visible civilian, or TargetNotFoundException if none is in view. */
+    /**
+     * Most appealing visible civilian, or TargetNotFoundException if none is
+     * in view. Appeal is distance scaled by energy, so with equal energy the
+     * closest wins, but a weak human can beat a slightly closer healthy one.
+     */
     Human findTarget(World world) throws TargetNotFoundException {
         return visibleCivilians(world)
-                .min(Comparator.comparingDouble(this::distanceTo))
+                .min(Comparator.comparingDouble(this::appeal))
                 .orElseThrow(() -> new TargetNotFoundException(
                         "No visible civilian in range"));
+    }
+
+    /** Lower is more appealing: full energy counts as the real distance, empty as half. */
+    private double appeal(Human human) {
+        return distanceTo(human) * (0.5 + human.getEnergy() / 200.0);
     }
 
     /** Number of civilians currently in view, counted with a stream. */
