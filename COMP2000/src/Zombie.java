@@ -230,19 +230,48 @@ public class Zombie extends Entity {
                         .isPresent();
     }
 
-    /** Backs away from the given soldier, directly away from where it stands. */
+    /**
+     * Backs away from the given soldier. Against a wall it slides along the
+     * wall instead of pushing into it, and in a corner it heads for the
+     * middle of the map, so a retreating zombie is not simply pinned.
+     */
     private void retreat(Military threat, World world) {
         double xDifference = getX() - threat.getX();
         double yDifference = getY() - threat.getY();
         double distance = Math.hypot(xDifference, yDifference);
 
-        if (distance > 0) {
-            move(
-                    xDifference / distance,
-                    yDifference / distance,
-                    CHASE_SPEED,
-                    world
-            );
+        if (distance == 0) {
+            return;
+        }
+
+        double xDirection = xDifference / distance;
+        double yDirection = yDifference / distance;
+
+        boolean atSideWall = (getX() <= WIDTH && xDirection < 0)
+                || (getX() >= world.getWidth() - WIDTH && xDirection > 0);
+        boolean atEndWall = (getY() <= HEIGHT && yDirection < 0)
+                || (getY() >= world.getHeight() - HEIGHT && yDirection > 0);
+
+        double towardMiddleX = Math.signum(world.getWidth() / 2.0 - getX());
+        double towardMiddleY = Math.signum(world.getHeight() / 2.0 - getY());
+
+        if (atSideWall && atEndWall) {
+            xDirection = towardMiddleX;
+            yDirection = towardMiddleY;
+        } else if (atSideWall) {
+            xDirection = 0;
+            yDirection = Math.signum(yDirection) != 0
+                    ? Math.signum(yDirection) : towardMiddleY;
+        } else if (atEndWall) {
+            yDirection = 0;
+            xDirection = Math.signum(xDirection) != 0
+                    ? Math.signum(xDirection) : towardMiddleX;
+        }
+
+        double length = Math.hypot(xDirection, yDirection);
+
+        if (length > 0) {
+            move(xDirection / length, yDirection / length, CHASE_SPEED, world);
         }
     }
 
