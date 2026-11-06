@@ -42,6 +42,8 @@ public class Zombie extends Entity {
     private static final double WARY_RADIUS = 300.0;
     private static final double BREAK_OFF_DISTANCE = 190.0;
     private static final double BREAK_OFF_EXCEPTION = 40.0;
+    private static final double ALERT_RADIUS = 200.0;
+    private static final double PURSUIT_LIMIT = 450.0;
     private static final int WIDTH = 38;
     private static final int HEIGHT = 54;
     private static final int FRAME_TICKS = 8;
@@ -280,7 +282,7 @@ public class Zombie extends Entity {
     private boolean worthChasing(Human chased, World world) {
         return chased.isActive()
                 && !chased.isHidden()
-                && distanceTo(chased) <= DETECTION_RADIUS
+                && distanceTo(chased) <= PURSUIT_LIMIT
                 && !soldierTooClose(chased, world);
     }
 
@@ -288,8 +290,26 @@ public class Zombie extends Entity {
         try {
             return Optional.of(findTarget(world));
         } catch (TargetNotFoundException exception) {
-            return Optional.empty();
+            return alertedTarget(world);
         }
+    }
+
+    /**
+     * Horde alert: when nobody is in this zombie's own view, it joins the
+     * hunt of a nearby zombie that is already chasing, even if the human is
+     * beyond its own detection range. Closest such human wins.
+     */
+    Optional<Human> alertedTarget(World world) {
+        return world.getNearby(this, ALERT_RADIUS).stream()
+                .filter(entity -> entity instanceof Zombie)
+                .map(entity -> (Zombie) entity)
+                .filter(zombie -> zombie.mode == Mode.CHASING)
+                .map(zombie -> zombie.target)
+                .filter(human -> human != null
+                        && human.isActive()
+                        && !human.isHidden()
+                        && distanceTo(human) <= PURSUIT_LIMIT)
+                .min(Comparator.comparingDouble(this::distanceTo));
     }
 
     private void stalk(Building building, World world) {
