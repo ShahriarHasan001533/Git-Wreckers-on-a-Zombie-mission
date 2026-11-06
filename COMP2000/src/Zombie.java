@@ -42,6 +42,7 @@ public class Zombie extends Entity {
     private static final double WARY_RADIUS = 300.0;
     private static final double BREAK_OFF_DISTANCE = 190.0;
     private static final double BREAK_OFF_EXCEPTION = 40.0;
+    private static final int STARVE_TICKS = 2500;
     private static final double ALERT_RADIUS = 200.0;
     private static final double PURSUIT_LIMIT = 450.0;
     private static final int WIDTH = 38;
@@ -65,6 +66,7 @@ public class Zombie extends Entity {
     private boolean facingLeft;
     private Facing facing = Facing.FRONT;
     private Mode mode = Mode.WANDERING;
+    private int ticksSinceFeeding;
 
     public Zombie(double x, double y) {
         super(x, y);
@@ -105,6 +107,13 @@ public class Zombie extends Entity {
 
     @Override
     public void update(World world) {
+        ticksSinceFeeding++;
+
+        if (ticksSinceFeeding > STARVE_TICKS) {
+            deactivate();
+            return;
+        }
+
         mode = decideMode(world);
         mode.behaviour.accept(this, world);
     }
@@ -385,6 +394,7 @@ public class Zombie extends Entity {
         if (distanceTo(target) <= INFECT_DISTANCE) {
             target.infect();
             spreadInfection(target, world);
+            ticksSinceFeeding = 0;
             target = null;
         }
     }
