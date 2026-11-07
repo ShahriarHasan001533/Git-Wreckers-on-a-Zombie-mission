@@ -284,6 +284,20 @@ public class SimPanel extends JPanel implements WorldObserver {
             graphics2D.drawString("Kills: " + battle.getTotalKills(), 25, 118);
             graphics2D.drawString("Best: " + battle.getBestKills(), 115, 118);
 
+            // Snapshot data arrives through Observer; painting does no shelter aggregation.
+            ShelterSummary shelters = statistics.getShelterSummary();
+            int summaryX = Math.max(15, getWidth() - 255);
+            graphics2D.setColor(new Color(0, 0, 0, 170));
+            graphics2D.fillRoundRect(summaryX, 15, 240, 100, 12, 12);
+            graphics2D.setColor(Color.WHITE);
+            graphics2D.drawString("Shelters: " + shelters.getBuildingCount()
+                    + " | Full: " + shelters.getFullBuildings(), summaryX + 10, 38);
+            graphics2D.drawString("Occupied places: " + shelters.getOccupiedPlaces()
+                    + "/" + shelters.getCapacity(), summaryX + 10, 60);
+            graphics2D.drawString("Vacant places: " + shelters.getAvailablePlaces(), summaryX + 10, 82);
+            graphics2D.setFont(new Font("Arial", Font.PLAIN, 11));
+            graphics2D.drawString("Entry still depends on shelter policy", summaryX + 10, 102);
+
         } finally {
             graphics2D.dispose();
         }

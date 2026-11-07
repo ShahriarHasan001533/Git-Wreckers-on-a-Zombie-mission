@@ -5,13 +5,15 @@ import java.util.stream.Collectors;
 /** Population values captured at one point in a simulation run. */
 public final class WorldStatistics {
     private final long tick;
+    private final ShelterSummary shelterSummary;
     private final long humanCount;
     private final long militaryCount;
     private final long zombieCount;
     private final long foodCount;
 
-    private WorldStatistics(long tick, Map<Class<?>, Long> counts) {
+    private WorldStatistics(long tick, Map<Class<?>, Long> counts, ShelterSummary shelterSummary) {
         this.tick = tick;
+        this.shelterSummary = shelterSummary;
         this.humanCount = counts.getOrDefault(Human.class, 0L);
         this.militaryCount = counts.getOrDefault(Military.class, 0L);
         this.zombieCount = counts.getOrDefault(Zombie.class, 0L);
@@ -23,7 +25,11 @@ public final class WorldStatistics {
         Map<Class<?>, Long> counts = entities.stream()
                 .filter(Entity::isActive)
                 .collect(Collectors.groupingBy(Entity::getClass, Collectors.counting()));
-        return new WorldStatistics(tick, counts);
+        return new WorldStatistics(tick, counts, ShelterSummary.capture(entities));
+    }
+
+    public ShelterSummary getShelterSummary() {
+        return shelterSummary;
     }
 
     public long getTick() {
