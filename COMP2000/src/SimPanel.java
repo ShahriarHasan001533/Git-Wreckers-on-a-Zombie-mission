@@ -1,9 +1,14 @@
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.geom.Point2D;
 import java.io.File;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import javax.swing.*;
 
 public class SimPanel extends JPanel implements WorldObserver {
@@ -17,6 +22,9 @@ public class SimPanel extends JPanel implements WorldObserver {
     private boolean started;
     private boolean paused;
     private int speedLevel;
+    private Consumer<Point2D> mapClickListener = point -> { };
+    private TrapReport trapReport = new TrapReport();
+    private TrapBlasts trapBlasts = new TrapBlasts();
 
     private static final int MIN_SPEED_LEVEL = 1;
     private static final int MAX_SPEED_LEVEL = 5;
@@ -55,6 +63,18 @@ public class SimPanel extends JPanel implements WorldObserver {
             backgroundImage = new ImageIcon(sourceAsset.getAbsolutePath()).getImage();
         }
         setupKeyBindings();
+
+        // Once the simulation has started, clicks on the map are handed to
+        // whoever is listening (for example, placing a trap).
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) {
+                if (started) {
+                    mapClickListener.accept(
+                            new Point2D.Double(event.getX(), event.getY()));
+                }
+            }
+        });
     }
     /** Subscribe while the panel is attached to a Swing window. */
     @Override
@@ -185,6 +205,21 @@ public class SimPanel extends JPanel implements WorldObserver {
         repaint();
     }
 
+    /** Sets what happens when the map is clicked once the simulation has started. */
+    public void setMapClickListener(Consumer<Point2D> listener) {
+        mapClickListener = Objects.requireNonNull(listener, "Listener cannot be null");
+    }
+
+    /** Shows this report's trap catches in the HUD. */
+    public void showTrapReport(TrapReport report) {
+        trapReport = Objects.requireNonNull(report, "Report cannot be null");
+    }
+
+    /** Draws these blasts over the map whenever a trap goes off. */
+    public void showTrapBlasts(TrapBlasts blasts) {
+        trapBlasts = Objects.requireNonNull(blasts, "Blasts cannot be null");
+    }
+
     public boolean isRunning() {
         return started && !paused;
     }
@@ -228,6 +263,7 @@ public class SimPanel extends JPanel implements WorldObserver {
                     entity.draw(graphics2D);
                 }
             }
+            trapBlasts.draw(graphics2D);
 
             // Draw each building's occupancy on top
             graphics2D.setFont(
@@ -269,7 +305,7 @@ public class SimPanel extends JPanel implements WorldObserver {
             BattleReport battle = BattleReport.of(world.getEntities());
 
             graphics2D.setColor(new Color(0, 0, 0, 170));
-            graphics2D.fillRoundRect(15, 15, 220, 136, 12, 12);
+            graphics2D.fillRoundRect(15, 15, 220, 196, 12, 12);
 
             graphics2D.setColor(Color.WHITE);
             graphics2D.drawString("Tick: " + statistics.getTick(), 25, 38);
@@ -283,6 +319,24 @@ public class SimPanel extends JPanel implements WorldObserver {
             graphics2D.setColor(Color.WHITE);
             graphics2D.drawString("Kills: " + battle.getTotalKills(), 25, 118);
             graphics2D.drawString("Best: " + battle.getBestKills(), 115, 118);
+            graphics2D.drawString("Trap catches: " + trapReport.getCatches(), 25, 138);
+
+            // Two of HumanFoodStatistics' Collector-based figures, shown live
+            // rather than only being exercised by tests.
+            Map<Boolean, Long> shelterCounts =
+                    HumanFoodStatistics.countByShelterStatus(findEntities(Human.class));
+            graphics2D.drawString(
+                    "Sheltered: " + shelterCounts.getOrDefault(true, 0L)
+                            + "  Exposed: " + shelterCounts.getOrDefault(false, 0L),
+                    25, 158);
+
+            Map<FoodType, Long> foodByType =
+                    HumanFoodStatistics.countByFoodType(findEntities(Food.class));
+            graphics2D.drawString(
+                    "Apple: " + foodByType.getOrDefault(FoodType.APPLE, 0L)
+                            + " Pizza: " + foodByType.getOrDefault(FoodType.PIZZA, 0L)
+                            + " Burger: " + foodByType.getOrDefault(FoodType.BURGER, 0L),
+                    25, 178);
 
             // Snapshot data arrives through Observer; painting does no shelter aggregation.
             ShelterSummary shelters = statistics.getShelterSummary();
@@ -297,6 +351,7 @@ public class SimPanel extends JPanel implements WorldObserver {
             graphics2D.drawString("Vacant places: " + shelters.getAvailablePlaces(), summaryX + 10, 82);
             graphics2D.setFont(new Font("Arial", Font.PLAIN, 11));
             graphics2D.drawString("Entry still depends on shelter policy", summaryX + 10, 102);
+
 
         } finally {
             graphics2D.dispose();

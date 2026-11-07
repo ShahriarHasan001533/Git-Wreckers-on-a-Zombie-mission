@@ -1,10 +1,8 @@
 import java.awt.Graphics2D;
 import java.awt.Image;
-import java.io.File;
-import java.net.URL;
 import java.util.Comparator;
 import java.util.Random;
-import javax.swing.ImageIcon;
+import java.util.function.Predicate;
 
 /**
  * A person who expends energy, eats food, and can temporarily shelter inside a
@@ -41,9 +39,19 @@ public class Human extends Entity {
     private boolean moving;
     private boolean hidden;
     private Building shelter;
+    // Strategy pattern: how this human picks which food to go for is
+    // swappable, independently of everything else about it (composition
+    // over inheritance - see FoodSelectionStrategy).
+    private FoodSelectionStrategy foodStrategy = new NearestFoodStrategy();
 
     public Human(double x, double y) {
         this(x, y, DEFAULT_SPRITE_FOLDER);
+    }
+
+    /** Creates a human that uses a non-default strategy for choosing food. */
+    public Human(double x, double y, FoodSelectionStrategy foodStrategy) {
+        this(x, y, DEFAULT_SPRITE_FOLDER);
+        this.foodStrategy = foodStrategy;
     }
 
     /**
@@ -85,6 +93,16 @@ public class Human extends Entity {
     /** Returns the building currently sheltering this human, if any. */
     public Building getShelter() {
         return shelter;
+    }
+
+    /** Returns the strategy currently used to pick which food to go for. */
+    public FoodSelectionStrategy getFoodStrategy() {
+        return foodStrategy;
+    }
+
+    /** Swaps the food-selection strategy at runtime, e.g. after a scripted event. */
+    public void setFoodStrategy(FoodSelectionStrategy foodStrategy) {
+        this.foodStrategy = foodStrategy;
     }
 
     /**
@@ -209,35 +227,66 @@ public class Human extends Entity {
             return false;
         }
 
-        energy = Math.min(MAX_ENERGY, energy + food.getEnergyValue());
-        food.consume();
+        return eatDirectly(food);
+    }
+
+    /**
+     * Consumes any {@link Edible} directly, with no distance check. This is
+     * what makes Edible a genuinely separate contract from Food: a future
+     * item that is not an {@link Entity} at all - say, a care package handed
+     * straight to a human by a medic, with nothing to walk towards - could
+     * be eaten this way without ever needing a position in the world.
+     * {@link #eat(Food)} is simply this plus a proximity check.
+     */
+    public boolean eatDirectly(Edible edible) {
+        if (edible == null || edible.isConsumed()) {
+            return false;
+        }
+
+        energy = Math.min(MAX_ENERGY, energy + edible.getEnergyValue());
+        edible.consume();
         return true;
     }
 
     private Food findNearestFood(World world) throws TargetNotFoundException {
-        return findNearestEntity(world, FOOD_SEARCH_RADIUS, Food.class);
+        return foodStrategy.selectFood(world, this, FOOD_SEARCH_RADIUS)
+                .orElseThrow(() -> new TargetNotFoundException("No nearby Food target found"));
     }
 
-    private <T extends Entity> T findNearestEntity(World world,
-                                                   double radius,
-                                                   Class<T> entityType)
+    /**
+     * Bounded-generic nearest-entity-of-type finder, package-private so the
+     * {@link FoodSelectionStrategy} implementations in this package (e.g.
+     * {@link NearestFoodStrategy}) can reuse it instead of duplicating the
+     * same search.
+     */
+    <T extends Entity> T findNearestEntity(World world,
+                                            double radius,
+                                            Class<T> entityType,
+                                            Predicate<T> filter)
             throws TargetNotFoundException {
         return world.getNearby(this, radius).stream()
                 .filter(entityType::isInstance)
                 .map(entityType::cast)
+                .filter(filter)
                 .min(Comparator.comparingDouble(this::distanceTo))
                 .orElseThrow(() -> new TargetNotFoundException(
                         "No nearby " + entityType.getSimpleName() + " target found"
                 ));
     }
 
+    /**
+     * Reuses the same bounded generic finder as findNearestFood, rather than
+     * a separate instanceof-and-cast stream, so both searches work the same
+     * way. Double.MAX_VALUE keeps the previous whole-world search range
+     * (shelter-seeking isn't limited to FOOD_SEARCH_RADIUS).
+     */
     private Building findNearestAvailableBuilding(World world) {
-        return world.getEntities().stream()
-                .filter(entity -> entity instanceof Building)
-                .map(entity -> (Building) entity)
-                .filter(building -> building.canEnter(this))
-                .min(Comparator.comparingDouble(this::distanceTo))
-                .orElse(null);
+        try {
+            return findNearestEntity(world, Double.MAX_VALUE, Building.class,
+                    building -> building.canEnter(this));
+        } catch (TargetNotFoundException exception) {
+            return null;
+        }
     }
 
     private double distanceTo(double targetX, double targetY) {
@@ -285,25 +334,6 @@ public class Human extends Entity {
                 Math.min(world.getHeight() - CHARACTER_HEIGHT / 2.0, nextY));
         setPosition(nextX, nextY);
         advanceWalkAnimation();
-    }
-
-    private Image loadImage(String imagePath) {
-        URL imageUrl = Human.class.getResource(imagePath);
-        if (imageUrl != null) {
-            return new ImageIcon(imageUrl).getImage();
-        }
-
-        // When Java is run with only the generated out directory on its
-        // classpath, image assets remain in src rather than being duplicated.
-        String fileName = imagePath.startsWith("/") ? imagePath.substring(1) : imagePath;
-        File sourceAsset = new File("src", fileName);
-        if (!sourceAsset.isFile()) {
-            sourceAsset = new File("COMP2000/src", fileName);
-        }
-        if (!sourceAsset.isFile()) {
-            throw new IllegalStateException(imagePath + " was not found");
-        }
-        return new ImageIcon(sourceAsset.getAbsolutePath()).getImage();
     }
 
     private void advanceWalkAnimation() {

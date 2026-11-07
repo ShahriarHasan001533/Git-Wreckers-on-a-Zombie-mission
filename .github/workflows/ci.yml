@@ -41,3 +41,9 @@ jobs:
           java -ea -cp "out:src" HumanFoodTest
           java -ea -Djava.awt.headless=true -cp "out:src" WorldTest
           java -ea -Djava.awt.headless=true -cp "out:src" MainSpawnTest
+          java -ea -Djava.awt.headless=true -cp "out:src" MedicTest
+          java -ea -Djava.awt.headless=true -cp "out:src" TrapPlacerTest
+          java -ea -Djava.awt.headless=true -cp "out:src" TrapEventsTest
+          java -ea -Djava.awt.headless=true -cp "out:src" TrapPlacementTest
+          java -ea -Djava.awt.headless=true -cp "out:src" ExperimentTest
+          java -ea -Djava.awt.headless=true -cp "out:src" RaceConditionDemoTest

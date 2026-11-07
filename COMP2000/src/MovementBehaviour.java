@@ -23,7 +23,12 @@ public interface MovementBehaviour {
                 target -> unit.moveTowards(target.getX(), target.getY(), world));
     }
 
-    /** Walks the route forever, moving on to the next waypoint on arrival. */
+    /**
+     * Walks the route forever, moving on to the next waypoint on arrival. A
+     * waypoint the unit cannot get closer to (for example one outside the
+     * world, where movement is clamped) is skipped rather than pushed against
+     * forever.
+     */
     static MovementBehaviour patrol(PatrolRoute route) {
         Iterator<Point2D> waypoints = route.cycle();
         double arrivalDistance = 6.0;
@@ -33,11 +38,14 @@ public interface MovementBehaviour {
         Point2D[] heading = {waypoints.next()};
         return (unit, world) -> {
             Point2D waypoint = heading[0];
+            double startX = unit.getX();
+            double startY = unit.getY();
             unit.moveTowards(waypoint.getX(), waypoint.getY(), world);
+            boolean blocked = unit.getX() == startX && unit.getY() == startY;
             double distance = Math.hypot(
                     waypoint.getX() - unit.getX(),
                     waypoint.getY() - unit.getY());
-            if (distance <= arrivalDistance) {
+            if (distance <= arrivalDistance || blocked) {
                 heading[0] = waypoints.next();
             }
         };
