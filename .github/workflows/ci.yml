@@ -27,8 +27,23 @@ jobs:
           mkdir -p out
           javac -d out src/*.java
 
+      - name: Check world statistics and observers
+        working-directory: COMP2000
+        run: |
+          javac -cp out -d out test/WorldObserverTest.java
+          java -ea -Djava.awt.headless=true -cp "out:src" WorldObserverTest
+
       - name: Compile and run tests
         working-directory: COMP2000
         run: |
           javac -cp out -d out test/*.java
+          java -ea -Djava.awt.headless=true -cp "out:src" BuildingTest
           java -ea -cp "out:src" HumanFoodTest
+          java -ea -Djava.awt.headless=true -cp "out:src" WorldTest
+          java -ea -Djava.awt.headless=true -cp "out:src" MainSpawnTest
+          java -ea -Djava.awt.headless=true -cp "out:src" MedicTest
+          java -ea -Djava.awt.headless=true -cp "out:src" TrapPlacerTest
+          java -ea -Djava.awt.headless=true -cp "out:src" TrapEventsTest
+          java -ea -Djava.awt.headless=true -cp "out:src" TrapPlacementTest
+          java -ea -Djava.awt.headless=true -cp "out:src" ExperimentTest
+          java -ea -Djava.awt.headless=true -cp "out:src" RaceConditionDemoTest

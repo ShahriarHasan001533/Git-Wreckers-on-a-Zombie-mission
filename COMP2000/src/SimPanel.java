@@ -1,20 +1,30 @@
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.geom.Point2D;
 import java.io.File;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 import javax.swing.*;
 
-public class SimPanel extends JPanel {
+public class SimPanel extends JPanel implements WorldObserver {
 
     private final World world;
+    private WorldStatistics statistics;
+    private boolean observing;
     private final Image backgroundImage;
     private final Runnable resetAction;
 
     private boolean started;
     private boolean paused;
     private int speedLevel;
+    private Consumer<Point2D> mapClickListener = point -> { };
+    private TrapReport trapReport = new TrapReport();
+    private TrapBlasts trapBlasts = new TrapBlasts();
 
     private static final int MIN_SPEED_LEVEL = 1;
     private static final int MAX_SPEED_LEVEL = 5;
@@ -26,6 +36,7 @@ public class SimPanel extends JPanel {
 
     public SimPanel(World world, Runnable resetAction) {
         this.world = Objects.requireNonNull(world);
+        this.statistics = world.getStatistics();
         this.resetAction = Objects.requireNonNull(resetAction);
         started = false;
         paused = false;
@@ -52,7 +63,56 @@ public class SimPanel extends JPanel {
             backgroundImage = new ImageIcon(sourceAsset.getAbsolutePath()).getImage();
         }
         setupKeyBindings();
+
+        // Once the simulation has started, clicks on the map are handed to
+        // whoever is listening (for example, placing a trap).
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) {
+                if (started) {
+                    mapClickListener.accept(
+                            new Point2D.Double(event.getX(), event.getY()));
+                }
+            }
+        });
     }
+    /** Subscribe while the panel is attached to a Swing window. */
+    @Override
+    public void addNotify() {
+        super.addNotify();
+        observing = true;
+        world.addObserver(this);
+        // Startup may have published before this panel existed.
+        onWorldChanged(world.getStatistics());
+    }
+
+    /** Release the subscription when the panel leaves its window. */
+    @Override
+    public void removeNotify() {
+        observing = false;
+        world.removeObserver(this);
+        super.removeNotify();
+    }
+
+    /** Receive a completed simulation snapshot; update Swing on its event thread. */
+    @Override
+    public void onWorldChanged(WorldStatistics statistics) {
+        Objects.requireNonNull(statistics, "Statistics cannot be null");
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(() -> onWorldChanged(statistics));
+            return;
+        }
+        if (observing) {
+            this.statistics = statistics;
+            repaint();
+        }
+    }
+
+    /** The immutable snapshot currently used by the population HUD. */
+    WorldStatistics getDisplayedStatistics() {
+        return statistics;
+    }
+
     private void setupKeyBindings() {
         getInputMap(WHEN_IN_FOCUSED_WINDOW).put(
                 KeyStroke.getKeyStroke("pressed R"),
@@ -145,6 +205,21 @@ public class SimPanel extends JPanel {
         repaint();
     }
 
+    /** Sets what happens when the map is clicked once the simulation has started. */
+    public void setMapClickListener(Consumer<Point2D> listener) {
+        mapClickListener = Objects.requireNonNull(listener, "Listener cannot be null");
+    }
+
+    /** Shows this report's trap catches in the HUD. */
+    public void showTrapReport(TrapReport report) {
+        trapReport = Objects.requireNonNull(report, "Report cannot be null");
+    }
+
+    /** Draws these blasts over the map whenever a trap goes off. */
+    public void showTrapBlasts(TrapBlasts blasts) {
+        trapBlasts = Objects.requireNonNull(blasts, "Blasts cannot be null");
+    }
+
     public boolean isRunning() {
         return started && !paused;
     }
@@ -188,6 +263,7 @@ public class SimPanel extends JPanel {
                     entity.draw(graphics2D);
                 }
             }
+            trapBlasts.draw(graphics2D);
 
             // Draw each building's occupancy on top
             graphics2D.setFont(
@@ -201,6 +277,8 @@ public class SimPanel extends JPanel {
                                 + building.getOccupantCount()
                                 + "/"
                                 + building.getCapacity();
+
+                occupancyText = building.getAdmissionDescription() + " | " + occupancyText;
 
                 int textX = (int) building.getX();
                 int textY = (int) building.getY() - 10;
@@ -219,16 +297,18 @@ public class SimPanel extends JPanel {
                         textY
                 );
             }
-            int humanCount = countActiveEntitiesNamed("Human");
-            int zombieCount = countActiveEntitiesNamed("Zombie");
-            int militaryCount = countActiveEntitiesNamed("Military");
-            int foodCount = countActiveEntitiesNamed("Food");
+            long humanCount = statistics.getHumanCount();
+            long zombieCount = statistics.getZombieCount();
+            long militaryCount = statistics.getMilitaryCount();
+            long foodCount = statistics.getFoodCount();
+
+            BattleReport battle = BattleReport.of(world.getEntities());
 
             graphics2D.setColor(new Color(0, 0, 0, 170));
-            graphics2D.fillRoundRect(15, 15, 220, 116, 12, 12);
+            graphics2D.fillRoundRect(15, 15, 220, 196, 12, 12);
 
             graphics2D.setColor(Color.WHITE);
-            graphics2D.drawString("Tick: " + world.getTick(), 25, 38);
+            graphics2D.drawString("Tick: " + statistics.getTick(), 25, 38);
             graphics2D.drawString("Humans: " + humanCount, 25, 58);
             graphics2D.drawString("Zombies: " + zombieCount, 25, 78);
             graphics2D.drawString("Military: " + militaryCount, 25, 98);
@@ -236,6 +316,27 @@ public class SimPanel extends JPanel {
             graphics2D.drawString("Speed: " + getSpeedLabel(), 115, 78);
             graphics2D.setColor(Color.LIGHT_GRAY);
             graphics2D.drawString("+/- speed", 115, 98);
+            graphics2D.setColor(Color.WHITE);
+            graphics2D.drawString("Kills: " + battle.getTotalKills(), 25, 118);
+            graphics2D.drawString("Best: " + battle.getBestKills(), 115, 118);
+            graphics2D.drawString("Trap catches: " + trapReport.getCatches(), 25, 138);
+
+            // Two of HumanFoodStatistics' Collector-based figures, shown live
+            // rather than only being exercised by tests.
+            Map<Boolean, Long> shelterCounts =
+                    HumanFoodStatistics.countByShelterStatus(findEntities(Human.class));
+            graphics2D.drawString(
+                    "Sheltered: " + shelterCounts.getOrDefault(true, 0L)
+                            + "  Exposed: " + shelterCounts.getOrDefault(false, 0L),
+                    25, 158);
+
+            Map<FoodType, Long> foodByType =
+                    HumanFoodStatistics.countByFoodType(findEntities(Food.class));
+            graphics2D.drawString(
+                    "Apple: " + foodByType.getOrDefault(FoodType.APPLE, 0L)
+                            + " Pizza: " + foodByType.getOrDefault(FoodType.PIZZA, 0L)
+                            + " Burger: " + foodByType.getOrDefault(FoodType.BURGER, 0L),
+                    25, 178);
 
         } finally {
             graphics2D.dispose();
@@ -322,14 +423,4 @@ public class SimPanel extends JPanel {
         return matchingEntities;
     }
 
-    private int countActiveEntitiesNamed(String className) {
-        int count = 0;
-        for (Entity entity : world.getEntities()) {
-            if (entity.isActive()
-                    && entity.getClass().getSimpleName().equals(className)) {
-                count++;
-            }
-        }
-        return count;
-    }
 }

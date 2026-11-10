@@ -1,10 +1,8 @@
 import java.awt.Graphics2D;
 import java.awt.Image;
-import java.io.File;
-import java.net.URL;
 import java.util.Comparator;
 import java.util.Random;
-import javax.swing.ImageIcon;
+import java.util.function.Predicate;
 
 /**
  * A person who expends energy, eats food, and can temporarily shelter inside a
@@ -22,6 +20,7 @@ public class Human extends Entity {
     private static final int CHARACTER_WIDTH = 38;
     private static final int CHARACTER_HEIGHT = 54;
     private static final int TICKS_PER_WALK_FRAME = 8;
+    private static final String DEFAULT_SPRITE_FOLDER = "/HumanFoodAssets/";
 
     private final Random random = new Random();
     private double energy;
@@ -40,24 +39,44 @@ public class Human extends Entity {
     private boolean moving;
     private boolean hidden;
     private Building shelter;
+    // Strategy pattern: how this human picks which food to go for is
+    // swappable, independently of everything else about it (composition
+    // over inheritance - see FoodSelectionStrategy).
+    private FoodSelectionStrategy foodStrategy = new NearestFoodStrategy();
 
     public Human(double x, double y) {
+        this(x, y, DEFAULT_SPRITE_FOLDER);
+    }
+
+    /** Creates a human that uses a non-default strategy for choosing food. */
+    public Human(double x, double y, FoodSelectionStrategy foodStrategy) {
+        this(x, y, DEFAULT_SPRITE_FOLDER);
+        this.foodStrategy = foodStrategy;
+    }
+
+    /**
+     * Creates a human drawn with the sprites in {@code spriteFolder}, which
+     * must hold the same set of files as {@code HumanFoodAssets}. This lets a
+     * subclass such as {@link Medic} have its own look while reusing all of
+     * the walking animation code.
+     */
+    protected Human(double x, double y, String spriteFolder) {
         super(x, y);
         energy = MAX_ENERGY;
         frontWalkFrames = new Image[]{
-                loadImage("/HumanFoodAssets/HumanFrontWalk1.png"),
-                loadImage("/HumanFoodAssets/HumanFrontWalk2.png"),
-                loadImage("/HumanFoodAssets/HumanFrontWalk3.png"),
-                loadImage("/HumanFoodAssets/HumanFrontWalk4.png")
+                loadImage(spriteFolder + "HumanFrontWalk1.png"),
+                loadImage(spriteFolder + "HumanFrontWalk2.png"),
+                loadImage(spriteFolder + "HumanFrontWalk3.png"),
+                loadImage(spriteFolder + "HumanFrontWalk4.png")
         };
         sideWalkFrames = new Image[]{
-                loadImage("/HumanFoodAssets/HumanWalk1.png"),
-                loadImage("/HumanFoodAssets/HumanWalk2.png"),
-                loadImage("/HumanFoodAssets/HumanWalk3.png")
+                loadImage(spriteFolder + "HumanWalk1.png"),
+                loadImage(spriteFolder + "HumanWalk2.png"),
+                loadImage(spriteFolder + "HumanWalk3.png")
         };
-        frontIdleFrame = loadImage("/HumanFoodAssets/HumanFrontIdle.png");
-        sideIdleFrame = loadImage("/HumanFoodAssets/HumanSideIdle.png");
-        backFrame = loadImage("/HumanFoodAssets/HumanBack.png");
+        frontIdleFrame = loadImage(spriteFolder + "HumanFrontIdle.png");
+        sideIdleFrame = loadImage(spriteFolder + "HumanSideIdle.png");
+        backFrame = loadImage(spriteFolder + "HumanBack.png");
         walkFrame = 0;
         chooseNewWanderDirection();
     }
@@ -76,6 +95,16 @@ public class Human extends Entity {
         return shelter;
     }
 
+    /** Returns the strategy currently used to pick which food to go for. */
+    public FoodSelectionStrategy getFoodStrategy() {
+        return foodStrategy;
+    }
+
+    /** Swaps the food-selection strategy at runtime, e.g. after a scripted event. */
+    public void setFoodStrategy(FoodSelectionStrategy foodStrategy) {
+        this.foodStrategy = foodStrategy;
+    }
+
     /**
      * Attempts to enter a building with available capacity. A hidden human is
      * not drawn and should be ignored by zombie target-selection code.
@@ -89,7 +118,7 @@ public class Human extends Entity {
             return true;
         }
 
-        if (!building.enter()) {
+        if (!building.enter(this)) {
             return false;
         }
 
@@ -118,6 +147,12 @@ public class Human extends Entity {
         deactivate();
     }
 
+    /**
+     * Runs one tick of this human's life. The order is fixed: energy drains
+     * first (and a starving human dies), then {@link #behave(World)} decides
+     * what to do. Subclasses such as {@link Medic} customise only the
+     * behaviour step, so every kind of human gets hungry in the same way.
+     */
     @Override
     public void update(World world) {
         energy -= ENERGY_LOSS_PER_TICK;
@@ -127,6 +162,14 @@ public class Human extends Entity {
             return;
         }
 
+        behave(world);
+    }
+
+    /**
+     * Ordinary survival behaviour for one tick: shelter while healthy, then
+     * leave shelter to look for food once hungry, wandering if none is near.
+     */
+    protected void behave(World world) {
         // Sheltering protects the human, but food scarcity eventually forces
         // them back into the world where normal food-seeking can resume.
         if (hidden) {
@@ -161,41 +204,89 @@ public class Human extends Entity {
         }
     }
 
+    /**
+     * Restores energy from an outside source such as a medic, without going
+     * above the maximum.
+     *
+     * @param amount how much energy to restore
+     * @throws IllegalArgumentException if {@code amount} is not positive
+     */
+    public void restoreEnergy(double amount) {
+        if (amount <= 0) {
+            throw new IllegalArgumentException(
+                    "Restored energy must be positive"
+            );
+        }
+
+        energy = Math.min(MAX_ENERGY, energy + amount);
+    }
+
     /** Consumes an active food item when close enough to it. */
     public boolean eat(Food food) {
         if (food == null || !food.isActive() || distanceTo(food) > Food.EAT_DISTANCE) {
             return false;
         }
 
-        energy = Math.min(MAX_ENERGY, energy + food.getEnergyValue());
-        food.consume();
+        return eatDirectly(food);
+    }
+
+    /**
+     * Consumes any {@link Edible} directly, with no distance check. This is
+     * what makes Edible a genuinely separate contract from Food: a future
+     * item that is not an {@link Entity} at all - say, a care package handed
+     * straight to a human by a medic, with nothing to walk towards - could
+     * be eaten this way without ever needing a position in the world.
+     * {@link #eat(Food)} is simply this plus a proximity check.
+     */
+    public boolean eatDirectly(Edible edible) {
+        if (edible == null || edible.isConsumed()) {
+            return false;
+        }
+
+        energy = Math.min(MAX_ENERGY, energy + edible.getEnergyValue());
+        edible.consume();
         return true;
     }
 
     private Food findNearestFood(World world) throws TargetNotFoundException {
-        return findNearestEntity(world, FOOD_SEARCH_RADIUS, Food.class);
+        return foodStrategy.selectFood(world, this, FOOD_SEARCH_RADIUS)
+                .orElseThrow(() -> new TargetNotFoundException("No nearby Food target found"));
     }
 
-    private <T extends Entity> T findNearestEntity(World world,
-                                                   double radius,
-                                                   Class<T> entityType)
+    /**
+     * Bounded-generic nearest-entity-of-type finder, package-private so the
+     * {@link FoodSelectionStrategy} implementations in this package (e.g.
+     * {@link NearestFoodStrategy}) can reuse it instead of duplicating the
+     * same search.
+     */
+    <T extends Entity> T findNearestEntity(World world,
+                                            double radius,
+                                            Class<T> entityType,
+                                            Predicate<T> filter)
             throws TargetNotFoundException {
         return world.getNearby(this, radius).stream()
                 .filter(entityType::isInstance)
                 .map(entityType::cast)
+                .filter(filter)
                 .min(Comparator.comparingDouble(this::distanceTo))
                 .orElseThrow(() -> new TargetNotFoundException(
                         "No nearby " + entityType.getSimpleName() + " target found"
                 ));
     }
 
+    /**
+     * Reuses the same bounded generic finder as findNearestFood, rather than
+     * a separate instanceof-and-cast stream, so both searches work the same
+     * way. Double.MAX_VALUE keeps the previous whole-world search range
+     * (shelter-seeking isn't limited to FOOD_SEARCH_RADIUS).
+     */
     private Building findNearestAvailableBuilding(World world) {
-        return world.getEntities().stream()
-                .filter(entity -> entity instanceof Building)
-                .map(entity -> (Building) entity)
-                .filter(Building::canEnter)
-                .min(Comparator.comparingDouble(this::distanceTo))
-                .orElse(null);
+        try {
+            return findNearestEntity(world, Double.MAX_VALUE, Building.class,
+                    building -> building.canEnter(this));
+        } catch (TargetNotFoundException exception) {
+            return null;
+        }
     }
 
     private double distanceTo(double targetX, double targetY) {
@@ -243,25 +334,6 @@ public class Human extends Entity {
                 Math.min(world.getHeight() - CHARACTER_HEIGHT / 2.0, nextY));
         setPosition(nextX, nextY);
         advanceWalkAnimation();
-    }
-
-    private Image loadImage(String imagePath) {
-        URL imageUrl = Human.class.getResource(imagePath);
-        if (imageUrl != null) {
-            return new ImageIcon(imageUrl).getImage();
-        }
-
-        // When Java is run with only the generated out directory on its
-        // classpath, image assets remain in src rather than being duplicated.
-        String fileName = imagePath.startsWith("/") ? imagePath.substring(1) : imagePath;
-        File sourceAsset = new File("src", fileName);
-        if (!sourceAsset.isFile()) {
-            sourceAsset = new File("COMP2000/src", fileName);
-        }
-        if (!sourceAsset.isFile()) {
-            throw new IllegalStateException(imagePath + " was not found");
-        }
-        return new ImageIcon(sourceAsset.getAbsolutePath()).getImage();
     }
 
     private void advanceWalkAnimation() {

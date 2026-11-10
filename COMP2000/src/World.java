@@ -8,12 +8,16 @@ public class World {
 
     private static final int FOOD_SPAWN_INTERVAL_TICKS = 25;
     private static final int HUMAN_SPAWN_INTERVAL_TICKS = 100;
+    private static final int ZOMBIE_SPAWN_INTERVAL_TICKS = 100;
+    private static final double ZOMBIE_EDGE_MARGIN = 30.0;
     private static final double FOOD_ENERGY_VALUE = 45.0;
 
     private final List<Entity> entities;
     private final int width;
     private final int height;
     private final Random random;
+    private final List<WorldObserver> observers = new ArrayList<>();
+    private boolean publishingStatistics;
     private long tick;
 
     public World(int width, int height) {
@@ -43,6 +47,7 @@ public class World {
     }
 
     public void addEntity(Entity entity) {
+        requireNotPublishing();
         entities.add(Objects.requireNonNull(
                 entity,
                 "Entity cannot be null"
@@ -51,6 +56,60 @@ public class World {
 
     public List<Entity> getEntities() {
         return Collections.unmodifiableList(entities);
+    }
+
+    public WorldStatistics getStatistics() {
+        return WorldStatistics.capture(tick, entities);
+    }
+
+    /** Registration changes apply to the next publication; duplicates are ignored. */
+    public void addObserver(WorldObserver observer) {
+        Objects.requireNonNull(observer, "Observer cannot be null");
+        if (!observers.contains(observer)) {
+            observers.add(observer);
+        }
+    }
+
+    public void removeObserver(WorldObserver observer) {
+        observers.remove(Objects.requireNonNull(observer, "Observer cannot be null"));
+    }
+
+    /** Publishes one snapshot; after reset, call only once the new scenario is populated. */
+    public void publishStatistics() {
+        requireNotPublishing();
+        if (observers.isEmpty()) {
+            return;
+        }
+        WorldStatistics statistics = getStatistics();
+        List<WorldObserver> subscribers = List.copyOf(observers);
+        IllegalStateException failure = null;
+        publishingStatistics = true;
+        try {
+            for (WorldObserver observer : subscribers) {
+                try {
+                    observer.onWorldChanged(statistics);
+                } catch (RuntimeException exception) {
+                    if (failure == null) {
+                        failure = new IllegalStateException(
+                                "World observer notification failed", exception);
+                    } else {
+                        failure.addSuppressed(exception);
+                    }
+                }
+            }
+        } finally {
+            publishingStatistics = false;
+        }
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
+    private void requireNotPublishing() {
+        if (publishingStatistics) {
+            throw new IllegalStateException(
+                    "World cannot be changed during observer notification");
+        }
     }
 
     public List<Entity> getNearby(Entity source, double radius) {
@@ -82,6 +141,7 @@ public class World {
     }
 
     public void update() {
+        requireNotPublishing();
         for(Entity entity : List.copyOf(entities)) {
             if(entity.isActive()) {
                 entity.update(this);
@@ -91,19 +151,25 @@ public class World {
         removeInactiveEntities();
         tick++;
         spawnEntities();
+        publishStatistics();
     }
 
     public void removeInactiveEntities() {
+        requireNotPublishing();
         entities.removeIf(entity -> !entity.isActive());
     }
 
     /** Clears the simulation state so the caller can build a fresh scenario. */
     public void reset() {
+        requireNotPublishing();
         entities.clear();
         tick = 0;
     }
 
-    /** Adds food and humans at random locations at regular simulation intervals. */
+    /**
+     * Adds food and humans at random locations, and a zombie wandering in
+     * from the edge of the world, at regular simulation intervals.
+     */
     private void spawnEntities() {
         if (tick % FOOD_SPAWN_INTERVAL_TICKS == 0) {
             addEntity(new Food(random.nextDouble() * width,
@@ -112,7 +178,28 @@ public class World {
 
         if (tick % HUMAN_SPAWN_INTERVAL_TICKS == 0) {
             addEntity(new Human(random.nextDouble() * width,
-                    random.nextDouble() * height));
+                    random.nextDouble() * height,
+                    FoodSelectionStrategy.random(random)));
+        }
+
+        if (tick % ZOMBIE_SPAWN_INTERVAL_TICKS == 0) {
+            addEntity(newEdgeZombie());
+        }
+    }
+
+    /** A zombie placed on a random side of the world, so it walks in rather than appearing on top of someone. */
+    private Zombie newEdgeZombie() {
+        double x = ZOMBIE_EDGE_MARGIN + random.nextDouble() * (width - 2 * ZOMBIE_EDGE_MARGIN);
+        double y = ZOMBIE_EDGE_MARGIN + random.nextDouble() * (height - 2 * ZOMBIE_EDGE_MARGIN);
+        switch (random.nextInt(4)) {
+            case 0:
+                return new Zombie(x, ZOMBIE_EDGE_MARGIN);
+            case 1:
+                return new Zombie(x, height - ZOMBIE_EDGE_MARGIN);
+            case 2:
+                return new Zombie(ZOMBIE_EDGE_MARGIN, y);
+            default:
+                return new Zombie(width - ZOMBIE_EDGE_MARGIN, y);
         }
     }
 

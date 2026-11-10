@@ -1,10 +1,28 @@
+import java.awt.BorderLayout;
+import java.awt.Cursor;
+import java.awt.FlowLayout;
+import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JOptionPane;
+import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import java.util.List;
+import java.util.Random;
 
 
 public class Main {
+
+    private static final double AGENT_SPAWN_MARGIN = 80;
+    // Reserve the default patrol's 160/110-unit excursions and sprite clearance.
+    private static final double MILITARY_SPAWN_MARGIN_X = 180;
+    private static final double MILITARY_SPAWN_MARGIN_Y = 140;
+    // A few zombies from the start so traps and infection have an early impact.
+    private static final int STARTING_ZOMBIES = 3;
+    // Extra traps the viewer can place by hand each run.
+    private static final int PLACEABLE_TRAPS = 3;
+    private static final int STARTING_TRAPS = 3;
+    private static final int TRAP_USES = 2;
 
     public static void main(String[] args) {
 
@@ -25,12 +43,41 @@ public class Main {
 
     private static void startSimulation() {
         World world = new World(1000,750);
+        // Both listen to every trap: one counts catches for the HUD, the
+        // other flashes a blast on the map where the trap went off.
+        TrapReport trapReport = new TrapReport();
+        TrapBlasts trapBlasts = new TrapBlasts();
         populateWorld(world);
+        listenToTraps(world, trapReport, trapBlasts);
+        TrapPlacer trapPlacer = new TrapPlacer(world, PLACEABLE_TRAPS);
 
         SimPanel simPanel = new SimPanel(world, () -> {
             world.reset();
             populateWorld(world);
+            trapReport.reset();
+            trapBlasts.clear();
+            listenToTraps(world, trapReport, trapBlasts);
+            trapPlacer.reset();
         });
+        simPanel.showTrapReport(trapReport);
+        simPanel.showTrapBlasts(trapBlasts);
+
+        // Place a trap by pressing the button, then clicking on the map.
+        JButton trapButton = new JButton();
+        // Leave keyboard focus with the simulation so R, P and +/- keep working.
+        trapButton.setFocusable(false);
+        trapButton.addActionListener(event -> trapPlacer.toggleArmed());
+        simPanel.setMapClickListener(point -> {
+            if (trapPlacer.placeAt(point.getX(), point.getY())) {
+                // Hand-placed traps need the same listeners as the starting ones.
+                listenToTraps(world, trapReport, trapBlasts);
+            }
+        });
+        trapPlacer.setOnChange(() -> showTrapState(trapButton, simPanel, trapPlacer));
+        showTrapState(trapButton, simPanel, trapPlacer);
+
+        JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        controls.add(trapButton);
 
         JFrame frame =
                 new JFrame("Zombie Simulation");
@@ -39,7 +86,8 @@ public class Main {
                 JFrame.EXIT_ON_CLOSE
         );
 
-        frame.add(simPanel);
+        frame.add(simPanel, BorderLayout.CENTER);
+        frame.add(controls, BorderLayout.SOUTH);
         frame.pack();
         frame.setLocationRelativeTo(null);
         frame.setResizable(false);
@@ -65,21 +113,83 @@ public class Main {
         renderTimer.start();
     }
 
-    private static void populateWorld(World world) {
-        world.addEntity(new Building(155, 125, 150, 100));
-        world.addEntity(new Building(580, 490, 150, 100));
+    /** Subscribes each listener to every trap in the world (traps already listened to are skipped). */
+    private static void listenToTraps(World world, TrapListener... listeners) {
+        for (TrapListener listener : listeners) {
+            Trap.listenToAll(world, listener);
+        }
+    }
 
-        // Part B: people wander until they find and consume nearby food.
-        world.addEntity(new Human(100, 400));
-        world.addEntity(new Human(450, 200));
-        world.addEntity(new Human(800, 350));
+    /** Updates the trap button's label and the map cursor to match the placer. */
+    private static void showTrapState(JButton button, SimPanel map, TrapPlacer placer) {
+        if (placer.isArmed()) {
+            button.setText("Click the map to place a trap (click here to cancel)");
+        } else if (placer.getTrapsLeft() > 0) {
+            button.setText("Place trap (" + placer.getTrapsLeft() + " left)");
+        } else {
+            button.setText("No traps left");
+        }
+        button.setEnabled(placer.isArmed() || placer.getTrapsLeft() > 0);
+        map.setCursor(Cursor.getPredefinedCursor(
+                placer.isArmed() ? Cursor.CROSSHAIR_CURSOR : Cursor.DEFAULT_CURSOR));
+    }
+
+    private static void populateWorld(World world) {
+        populateWorld(world, new Random());
+    }
+
+    // Package-private so Experiment can build the same starting world.
+    static void populateWorld(World world, Random random) {
+        world.addEntity(new Building(155, 125, 150, 100));
+        world.addEntity(new Building(580, 490, 150, 100, 3, new EmergencyAdmissionPolicy(2, 60)));
+
+        // Traps go at random spots near the building entrances, shared out
+        // between the buildings: survivors run there for shelter and zombies
+        // follow them. They are added before the characters so they are drawn
+        // underneath anyone walking over them.
+        List<Building> buildings = world.getEntities().stream()
+                .filter(Building.class::isInstance)
+                .map(Building.class::cast)
+                .toList();
+        for (int index = 0; index < STARTING_TRAPS; index++) {
+            Building building = buildings.get(index % buildings.size());
+            world.addEntity(Trap.nearEntrance(world, building, random, TRAP_USES));
+        }
+
+        // Vary initial encounters without changing the population sizes. Each
+        // human gets a random food-seeking strategy so the starting
+        // population already shows a mix of behaviours, not just the default.
+        for (int index = 0; index < 3; index++) {
+            world.addEntity(new Human(
+                    randomCoordinate(random, world.getWidth(), AGENT_SPAWN_MARGIN),
+                    randomCoordinate(random, world.getHeight(), AGENT_SPAWN_MARGIN),
+                    FoodSelectionStrategy.random(random)));
+        }
 
         world.addEntity(new Food(250, 300, 45));
         world.addEntity(new Food(500, 600, 45));
         world.addEntity(new Food(850, 150, 45));
 
-        world.addEntity(new Zombie(700, 250));
-        world.addEntity(new Military(500, 375));
-        world.addEntity(new Military(200, 620));
+        for (int index = 0; index < STARTING_ZOMBIES; index++) {
+            world.addEntity(new Zombie(
+                    randomCoordinate(random, world.getWidth(), AGENT_SPAWN_MARGIN),
+                    randomCoordinate(random, world.getHeight(), AGENT_SPAWN_MARGIN)));
+        }
+        for (int index = 0; index < 2; index++) {
+            world.addEntity(new Military(
+                    randomCoordinate(random, world.getWidth(), MILITARY_SPAWN_MARGIN_X),
+                    randomCoordinate(random, world.getHeight(), MILITARY_SPAWN_MARGIN_Y)));
+        }
+        // Medics spawn like other civilians and look after the injured.
+        for (int index = 0; index < 2; index++) {
+            world.addEntity(new Medic(
+                    randomCoordinate(random, world.getWidth(), AGENT_SPAWN_MARGIN),
+                    randomCoordinate(random, world.getHeight(), AGENT_SPAWN_MARGIN)));
+        }
+        world.publishStatistics();
+    }
+
+    private static double randomCoordinate(Random random, int dimension, double margin) {
+        return margin + random.nextDouble() * (dimension - 2 * margin);
     }
 }
