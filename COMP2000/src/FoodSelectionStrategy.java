@@ -1,4 +1,5 @@
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.function.Supplier;
@@ -36,15 +37,47 @@ public interface FoodSelectionStrategy {
     }
 
     /**
-     * Picks one of the three built-in strategies at random, but never the
-     * same kind as {@code current}. Used when a human adapts away from a
-     * strategy that has left it struggling (see Human.adaptFoodStrategyIfStruggling).
+     * Picks one of the other two built-in strategies, weighted by how well
+     * each is currently performing - {@code averageEnergyByStrategy} is
+     * exactly what {@link HumanFoodStatistics#averageEnergyByStrategy} returns,
+     * keyed by {@code getClass().getSimpleName()}. A strategy with higher
+     * average energy right now is proportionally more likely to be picked,
+     * so a struggling human drifts towards whatever is actually working for
+     * the population instead of just trying something different at random.
+     * A strategy nobody is currently using (missing from the map) gets the
+     * average of the known figures, so it still has a fair chance to be
+     * tried rather than being starved out of the rotation entirely.
      */
-    static FoodSelectionStrategy randomOtherThan(Random random, FoodSelectionStrategy current) {
-        FoodSelectionStrategy candidate;
-        do {
-            candidate = random(random);
-        } while (candidate.getClass() == current.getClass());
-        return candidate;
+    static FoodSelectionStrategy weightedRandomOtherThan(Random random,
+                                                          FoodSelectionStrategy current,
+                                                          Map<String, Double> averageEnergyByStrategy) {
+        List<Supplier<FoodSelectionStrategy>> others = List.<Supplier<FoodSelectionStrategy>>of(
+                        NearestFoodStrategy::new, HighestValueFoodStrategy::new, BalancedFoodStrategy::new)
+                .stream()
+                .filter(supplier -> supplier.get().getClass() != current.getClass())
+                .toList();
+
+        double neutralWeight = averageEnergyByStrategy.values().stream()
+                .mapToDouble(Double::doubleValue)
+                .average()
+                .orElse(50.0);
+
+        double[] weights = new double[others.size()];
+        double totalWeight = 0;
+        for (int i = 0; i < others.size(); i++) {
+            String name = others.get(i).get().getClass().getSimpleName();
+            weights[i] = Math.max(1.0, averageEnergyByStrategy.getOrDefault(name, neutralWeight));
+            totalWeight += weights[i];
+        }
+
+        double pick = random.nextDouble() * totalWeight;
+        double cumulative = 0;
+        for (int i = 0; i < others.size(); i++) {
+            cumulative += weights[i];
+            if (pick <= cumulative) {
+                return others.get(i).get();
+            }
+        }
+        return others.get(others.size() - 1).get();
     }
 }

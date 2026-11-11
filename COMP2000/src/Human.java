@@ -1,6 +1,8 @@
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.function.Predicate;
 
@@ -167,7 +169,7 @@ public class Human extends Entity {
             return;
         }
 
-        adaptFoodStrategyIfStruggling();
+        adaptFoodStrategyIfStruggling(world);
         behave(world);
     }
 
@@ -175,20 +177,30 @@ public class Human extends Entity {
      * Switches to a different food strategy once this human has stayed below
      * {@link #STRUGGLE_ENERGY_THRESHOLD} for {@link #STRUGGLE_TICKS_BEFORE_SWITCH}
      * ticks in a row, rather than starving indefinitely on a strategy that
-     * isn't working for its surroundings. This is what makes food-strategy
-     * assignment emergent rather than fixed at spawn: whichever strategies
-     * keep humans fed stick around, since only the ones left hungry get
-     * reassigned (measurable afterwards via
-     * HumanFoodStatistics#averageEnergyByStrategy).
+     * isn't working for its surroundings. The replacement is chosen by
+     * {@link FoodSelectionStrategy#weightedRandomOtherThan}, weighted by the
+     * population's own current {@link HumanFoodStatistics#averageEnergyByStrategy}
+     * figures - so struggling humans drift towards whichever strategy is
+     * actually keeping the rest of the population fed right now, and that
+     * answer can itself shift over the run as the food layout is used up.
+     * This is what makes food-strategy assignment a genuinely emergent,
+     * population-level result instead of a fixed per-human coin flip.
      */
-    private void adaptFoodStrategyIfStruggling() {
+    private void adaptFoodStrategyIfStruggling(World world) {
         if (energy >= STRUGGLE_ENERGY_THRESHOLD) {
             strugglingTicks = 0;
             return;
         }
 
         if (++strugglingTicks >= STRUGGLE_TICKS_BEFORE_SWITCH) {
-            foodStrategy = FoodSelectionStrategy.randomOtherThan(random, foodStrategy);
+            List<Human> population = world.getEntities().stream()
+                    .filter(Human.class::isInstance)
+                    .map(Human.class::cast)
+                    .toList();
+            Map<String, Double> performanceByStrategy =
+                    HumanFoodStatistics.averageEnergyByStrategy(population);
+            foodStrategy = FoodSelectionStrategy.weightedRandomOtherThan(
+                    random, foodStrategy, performanceByStrategy);
             strugglingTicks = 0;
         }
     }

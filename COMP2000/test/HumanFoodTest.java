@@ -46,6 +46,7 @@ public final class HumanFoodTest {
         testRandomStrategyProducesVariety();
         testEnergyRangeCustomCollector();
         testHumanSwitchesStrategyWhenStruggling();
+        testWeightedStrategySwitchFavorsBetterPerformer();
         System.out.println("HumanFoodTest passed");
     }
 
@@ -65,6 +66,26 @@ public final class HumanFoodTest {
 
         assert human.isActive();
         assert human.getFoodStrategy().getClass() != initialStrategyType;
+    }
+
+    /** The weighted pick should favour whichever strategy the feedback map says is doing better. */
+    private static void testWeightedStrategySwitchFavorsBetterPerformer() {
+        java.util.Random random = new java.util.Random(42);
+        java.util.Map<String, Double> performance = java.util.Map.of(
+                "HighestValueFoodStrategy", 90.0,
+                "BalancedFoodStrategy", 10.0);
+
+        int trials = 200;
+        int highestValuePicks = 0;
+        for (int i = 0; i < trials; i++) {
+            FoodSelectionStrategy picked = FoodSelectionStrategy.weightedRandomOtherThan(
+                    random, new NearestFoodStrategy(), performance);
+            if (picked instanceof HighestValueFoodStrategy) {
+                highestValuePicks++;
+            }
+        }
+
+        assert highestValuePicks > trials * 3 / 4;
     }
 
     /** Custom Collector.of(...): min/max/count of food energy in one pass. */
