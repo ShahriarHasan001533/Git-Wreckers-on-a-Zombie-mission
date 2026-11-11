@@ -1,6 +1,7 @@
 import java.util.DoubleSummaryStatistics;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
 /**
@@ -78,5 +79,16 @@ public final class HumanFoodStatistics {
     public static Map<FoodType, Long> countByFoodTypeParallel(List<Food> food) {
         return food.parallelStream()
                 .collect(Collectors.groupingByConcurrent(Food::getType, Collectors.counting()));
+    }
+
+    /**
+     * Min/max/count of food energy values in one pass, built with
+     * {@code Collector.of(...)} - a genuine custom collector (its own
+     * supplier, accumulator and combiner in {@link EnergyRange}), rather than
+     * composing built-in collectors the way every other method here does.
+     */
+    public static EnergyRange energyRange(List<Food> food) {
+        return food.stream()
+                .collect(Collector.of(EnergyRange::new, EnergyRange::accept, EnergyRange::combine));
     }
 }

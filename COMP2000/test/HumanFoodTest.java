@@ -44,7 +44,23 @@ public final class HumanFoodTest {
         testEatDirectlyWorksForNonFoodEdible();
         testParallelStatisticsMatchSequential();
         testRandomStrategyProducesVariety();
+        testEnergyRangeCustomCollector();
         System.out.println("HumanFoodTest passed");
+    }
+
+    /** Custom Collector.of(...): min/max/count of food energy in one pass. */
+    private static void testEnergyRangeCustomCollector() {
+        java.util.List<Food> food =
+                java.util.List.of(new Food(0, 0, 10), new Food(0, 0, 45), new Food(0, 0, 20));
+        EnergyRange range = HumanFoodStatistics.energyRange(food);
+        assert range.getMin() == 10;
+        assert range.getMax() == 45;
+        assert range.getCount() == 3;
+
+        EnergyRange empty = HumanFoodStatistics.energyRange(java.util.List.of());
+        assert empty.getMin() == 0;
+        assert empty.getMax() == 0;
+        assert empty.getCount() == 0;
     }
 
     /** World/Main rely on this producing a genuine mix, not always the same strategy. */
