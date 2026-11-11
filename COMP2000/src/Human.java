@@ -15,6 +15,10 @@ public class Human extends Entity {
     private static final double ENERGY_LOSS_PER_TICK = 0.20;
     private static final double FOOD_SEARCH_RADIUS = 250.0;
     private static final double LEAVE_SHELTER_ENERGY = 35.0;
+    // Below this energy for long enough, a human gives up on its current
+    // food strategy and tries a different one instead of starving on it.
+    private static final double STRUGGLE_ENERGY_THRESHOLD = 30.0;
+    private static final int STRUGGLE_TICKS_BEFORE_SWITCH = 100;
     private static final double SPEED = 2.0;
     private static final double BUILDING_ENTRY_DISTANCE = SPEED;
     private static final int CHARACTER_WIDTH = 38;
@@ -43,6 +47,7 @@ public class Human extends Entity {
     // swappable, independently of everything else about it (composition
     // over inheritance - see FoodSelectionStrategy).
     private FoodSelectionStrategy foodStrategy = new NearestFoodStrategy();
+    private int strugglingTicks;
 
     public Human(double x, double y) {
         this(x, y, DEFAULT_SPRITE_FOLDER);
@@ -162,7 +167,30 @@ public class Human extends Entity {
             return;
         }
 
+        adaptFoodStrategyIfStruggling();
         behave(world);
+    }
+
+    /**
+     * Switches to a different food strategy once this human has stayed below
+     * {@link #STRUGGLE_ENERGY_THRESHOLD} for {@link #STRUGGLE_TICKS_BEFORE_SWITCH}
+     * ticks in a row, rather than starving indefinitely on a strategy that
+     * isn't working for its surroundings. This is what makes food-strategy
+     * assignment emergent rather than fixed at spawn: whichever strategies
+     * keep humans fed stick around, since only the ones left hungry get
+     * reassigned (measurable afterwards via
+     * HumanFoodStatistics#averageEnergyByStrategy).
+     */
+    private void adaptFoodStrategyIfStruggling() {
+        if (energy >= STRUGGLE_ENERGY_THRESHOLD) {
+            strugglingTicks = 0;
+            return;
+        }
+
+        if (++strugglingTicks >= STRUGGLE_TICKS_BEFORE_SWITCH) {
+            foodStrategy = FoodSelectionStrategy.randomOtherThan(random, foodStrategy);
+            strugglingTicks = 0;
+        }
     }
 
     /**

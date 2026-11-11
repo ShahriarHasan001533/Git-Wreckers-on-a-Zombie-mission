@@ -34,4 +34,17 @@ public interface FoodSelectionStrategy {
                 BalancedFoodStrategy::new);
         return options.get(random.nextInt(options.size())).get();
     }
+
+    /**
+     * Picks one of the three built-in strategies at random, but never the
+     * same kind as {@code current}. Used when a human adapts away from a
+     * strategy that has left it struggling (see Human.adaptFoodStrategyIfStruggling).
+     */
+    static FoodSelectionStrategy randomOtherThan(Random random, FoodSelectionStrategy current) {
+        FoodSelectionStrategy candidate;
+        do {
+            candidate = random(random);
+        } while (candidate.getClass() == current.getClass());
+        return candidate;
+    }
 }

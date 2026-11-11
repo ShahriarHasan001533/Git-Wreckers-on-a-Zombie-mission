@@ -45,7 +45,26 @@ public final class HumanFoodTest {
         testParallelStatisticsMatchSequential();
         testRandomStrategyProducesVariety();
         testEnergyRangeCustomCollector();
+        testHumanSwitchesStrategyWhenStruggling();
         System.out.println("HumanFoodTest passed");
+    }
+
+    /**
+     * A human stuck below the struggle threshold for long enough (no food or
+     * shelter anywhere in the world) should switch away from its starting
+     * strategy before it starves, rather than staying on a losing one.
+     */
+    private static void testHumanSwitchesStrategyWhenStruggling() {
+        World world = new World(1000, 750);
+        Human human = new Human(500, 500, new NearestFoodStrategy());
+        Class<?> initialStrategyType = human.getFoodStrategy().getClass();
+
+        for (int i = 0; i < 460 && human.isActive(); i++) {
+            human.update(world);
+        }
+
+        assert human.isActive();
+        assert human.getFoodStrategy().getClass() != initialStrategyType;
     }
 
     /** Custom Collector.of(...): min/max/count of food energy in one pass. */
